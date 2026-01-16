@@ -1,0 +1,482 @@
+[
+  {
+    "dggid": "B0-0-A",
+    "tid": 0,
+    "key": "temperature",
+    "value": 12
+  },
+  {
+    "dggid": "B0-1-A",
+    "tid": 0,
+    "key": "temperature",
+    "value": 13.48
+  },
+  {
+    "dggid": "B0-2-A",
+    "tid": 0,
+    "key": "temperature",
+    "value": 14.88
+  },
+  {
+    "dggid": "B0-3-A",
+    "tid": 0,
+    "key": "temperature",
+    "value": 16.09
+  },
+  {
+    "dggid": "B0-4-A",
+    "tid": 0,
+    "key": "temperature",
+    "value": 17.05
+  },
+  {
+    "dggid": "B0-5-A",
+    "tid": 0,
+    "key": "temperature",
+    "value": 17.69
+  },
+  {
+    "dggid": "B0-6-A",
+    "tid": 0,
+    "key": "temperature",
+    "value": 17.98
+  },
+  {
+    "dggid": "B0-7-A",
+    "tid": 0,
+    "key": "temperature",
+    "value": 17.9
+  },
+  {
+    "dggid": "B0-8-A",
+    "tid": 0,
+    "key": "temperature",
+    "value": 17.46
+  },
+  {
+    "dggid": "B1-0-A",
+    "tid": 0,
+    "key": "temperature",
+    "value": 16.67
+  },
+  {
+    "dggid": "B1-1-A",
+    "tid": 0,
+    "key": "temperature",
+    "value": 15.59
+  },
+  {
+    "dggid": "B1-2-A",
+    "tid": 0,
+    "key": "temperature",
+    "value": 14.29
+  },
+  {
+    "dggid": "B1-3-A",
+    "tid": 0,
+    "key": "temperature",
+    "value": 12.85
+  },
+  {
+    "dggid": "B1-4-A",
+    "tid": 0,
+    "key": "temperature",
+    "value": 11.35
+  },
+  {
+    "dggid": "B1-5-A",
+    "tid": 0,
+    "key": "temperature",
+    "value": 9.9
+  },
+  {
+    "dggid": "B1-6-A",
+    "tid": 0,
+    "key": "temperature",
+    "value": 8.57
+  },
+  {
+    "dggid": "B1-7-A",
+    "tid": 0,
+    "key": "temperature",
+    "value": 7.46
+  },
+  {
+    "dggid": "B1-8-A",
+    "tid": 0,
+    "key": "temperature",
+    "value": 6.63
+  },
+  {
+    "dggid": "B2-0-A",
+    "tid": 0,
+    "key": "temperature",
+    "value": 6.13
+  },
+  {
+    "dggid": "B2-1-A",
+    "tid": 0,
+    "key": "temperature",
+    "value": 6
+  },
+  {
+    "dggid": "B2-2-A",
+    "tid": 0,
+    "key": "temperature",
+    "value": 6.25
+  },
+  {
+    "dggid": "B2-3-A",
+    "tid": 0,
+    "key": "temperature",
+    "value": 6.85
+  },
+  {
+    "dggid": "B2-4-A",
+    "tid": 0,
+    "key": "temperature",
+    "value": 7.77
+  },
+  {
+    "dggid": "B2-5-A",
+    "tid": 0,
+    "key": "temperature",
+    "value": 8.95
+  },
+  {
+    "dggid": "B2-6-A",
+    "tid": 0,
+    "key": "temperature",
+    "value": 10.32
+  },
+  {
+    "dggid": "B2-7-A",
+    "tid": 0,
+    "key": "temperature",
+    "value": 11.8
+  },
+  {
+    "dggid": "B2-8-A",
+    "tid": 0,
+    "key": "temperature",
+    "value": 13.29
+  },
+  {
+    "dggid": "B3-0-A",
+    "tid": 0,
+    "key": "temperature",
+    "value": 14.7
+  },
+  {
+    "dggid": "B3-1-A",
+    "tid": 0,
+    "key": "temperature",
+    "value": 15.94
+  },
+  {
+    "dggid": "B3-2-A",
+    "tid": 0,
+    "key": "temperature",
+    "value": 16.94
+  },
+  {
+    "dggid": "B3-3-A",
+    "tid": 0,
+    "key": "temperature",
+    "value": 17.63
+  },
+  {
+    "dggid": "B3-4-A",
+    "tid": 0,
+    "key": "temperature",
+    "value": 17.97
+  },
+  {
+    "dggid": "B3-5-A",
+    "tid": 0,
+    "key": "temperature",
+    "value": 17.94
+  },
+  {
+    "dggid": "B3-6-A",
+    "tid": 0,
+    "key": "temperature",
+    "value": 17.54
+  },
+  {
+    "dggid": "B3-7-A",
+    "tid": 0,
+    "key": "temperature",
+    "value": 16.79
+  },
+  {
+    "dggid": "B3-8-A",
+    "tid": 0,
+    "key": "temperature",
+    "value": 15.75
+  },
+  {
+    "dggid": "B4-0-A",
+    "tid": 0,
+    "key": "temperature",
+    "value": 14.47
+  },
+  {
+    "dggid": "B4-1-A",
+    "tid": 0,
+    "key": "temperature",
+    "value": 13.04
+  },
+  {
+    "dggid": "B4-2-A",
+    "tid": 0,
+    "key": "temperature",
+    "value": 11.55
+  },
+  {
+    "dggid": "B4-3-A",
+    "tid": 0,
+    "key": "temperature",
+    "value": 10.08
+  },
+  {
+    "dggid": "B4-4-A",
+    "tid": 0,
+    "key": "temperature",
+    "value": 8.74
+  },
+  {
+    "dggid": "B4-5-A",
+    "tid": 0,
+    "key": "temperature",
+    "value": 7.59
+  },
+  {
+    "dggid": "B4-6-A",
+    "tid": 0,
+    "key": "temperature",
+    "value": 6.72
+  },
+  {
+    "dggid": "B4-7-A",
+    "tid": 0,
+    "key": "temperature",
+    "value": 6.18
+  },
+  {
+    "dggid": "B4-8-A",
+    "tid": 0,
+    "key": "temperature",
+    "value": 6
+  },
+  {
+    "dggid": "B5-0-A",
+    "tid": 0,
+    "key": "temperature",
+    "value": 6.19
+  },
+  {
+    "dggid": "B5-1-A",
+    "tid": 0,
+    "key": "temperature",
+    "value": 6.75
+  },
+  {
+    "dggid": "B5-2-A",
+    "tid": 0,
+    "key": "temperature",
+    "value": 7.63
+  },
+  {
+    "dggid": "B5-3-A",
+    "tid": 0,
+    "key": "temperature",
+    "value": 8.78
+  },
+  {
+    "dggid": "B5-4-A",
+    "tid": 0,
+    "key": "temperature",
+    "value": 10.13
+  },
+  {
+    "dggid": "B5-5-A",
+    "tid": 0,
+    "key": "temperature",
+    "value": 11.6
+  },
+  {
+    "dggid": "B5-6-A",
+    "tid": 0,
+    "key": "temperature",
+    "value": 13.1
+  },
+  {
+    "dggid": "B5-7-A",
+    "tid": 0,
+    "key": "temperature",
+    "value": 14.52
+  },
+  {
+    "dggid": "B5-8-A",
+    "tid": 0,
+    "key": "temperature",
+    "value": 15.79
+  },
+  {
+    "dggid": "B6-0-A",
+    "tid": 0,
+    "key": "temperature",
+    "value": 16.82
+  },
+  {
+    "dggid": "B6-1-A",
+    "tid": 0,
+    "key": "temperature",
+    "value": 17.56
+  },
+  {
+    "dggid": "B6-2-A",
+    "tid": 0,
+    "key": "temperature",
+    "value": 17.94
+  },
+  {
+    "dggid": "B6-3-A",
+    "tid": 0,
+    "key": "temperature",
+    "value": 17.96
+  },
+  {
+    "dggid": "B6-4-A",
+    "tid": 0,
+    "key": "temperature",
+    "value": 17.61
+  },
+  {
+    "dggid": "B6-5-A",
+    "tid": 0,
+    "key": "temperature",
+    "value": 16.91
+  },
+  {
+    "dggid": "B6-6-A",
+    "tid": 0,
+    "key": "temperature",
+    "value": 15.9
+  },
+  {
+    "dggid": "B6-7-A",
+    "tid": 0,
+    "key": "temperature",
+    "value": 14.65
+  },
+  {
+    "dggid": "B6-8-A",
+    "tid": 0,
+    "key": "temperature",
+    "value": 13.24
+  },
+  {
+    "dggid": "B7-0-A",
+    "tid": 0,
+    "key": "temperature",
+    "value": 11.75
+  },
+  {
+    "dggid": "B7-1-A",
+    "tid": 0,
+    "key": "temperature",
+    "value": 10.27
+  },
+  {
+    "dggid": "B7-2-A",
+    "tid": 0,
+    "key": "temperature",
+    "value": 8.9
+  },
+  {
+    "dggid": "B7-3-A",
+    "tid": 0,
+    "key": "temperature",
+    "value": 7.73
+  },
+  {
+    "dggid": "B7-4-A",
+    "tid": 0,
+    "key": "temperature",
+    "value": 6.82
+  },
+  {
+    "dggid": "B7-5-A",
+    "tid": 0,
+    "key": "temperature",
+    "value": 6.23
+  },
+  {
+    "dggid": "B7-6-A",
+    "tid": 0,
+    "key": "temperature",
+    "value": 6
+  },
+  {
+    "dggid": "B7-7-A",
+    "tid": 0,
+    "key": "temperature",
+    "value": 6.15
+  },
+  {
+    "dggid": "B7-8-A",
+    "tid": 0,
+    "key": "temperature",
+    "value": 6.65
+  },
+  {
+    "dggid": "B8-0-A",
+    "tid": 0,
+    "key": "temperature",
+    "value": 7.49
+  },
+  {
+    "dggid": "B8-1-A",
+    "tid": 0,
+    "key": "temperature",
+    "value": 8.61
+  },
+  {
+    "dggid": "B8-2-A",
+    "tid": 0,
+    "key": "temperature",
+    "value": 9.95
+  },
+  {
+    "dggid": "B8-3-A",
+    "tid": 0,
+    "key": "temperature",
+    "value": 11.4
+  },
+  {
+    "dggid": "B8-4-A",
+    "tid": 0,
+    "key": "temperature",
+    "value": 12.9
+  },
+  {
+    "dggid": "B8-5-A",
+    "tid": 0,
+    "key": "temperature",
+    "value": 14.34
+  },
+  {
+    "dggid": "B8-6-A",
+    "tid": 0,
+    "key": "temperature",
+    "value": 15.63
+  },
+  {
+    "dggid": "B8-7-A",
+    "tid": 0,
+    "key": "temperature",
+    "value": 16.7
+  }
+]
