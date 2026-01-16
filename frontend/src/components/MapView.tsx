@@ -360,7 +360,33 @@ const MapView = ({
   }, [onCoordinatesChange]);
 
   const layers = useMemo<Layer[]>(() => {
-    const layerList: Layer[] = [
+    const layerList: Layer[] = [];
+
+    // Add earth background for globe view
+    if (useGlobe) {
+      // Simple earth layer using solid color polygons for landmass
+      layerList.push(
+        new PolygonLayer({
+          id: 'earth-background',
+          data: [
+            // Ocean polygon (full globe)
+            {
+              polygon: [
+                [-180, -85], [180, -85], [180, 85], [-180, 85], [-180, -85]
+              ],
+              type: 'ocean'
+            }
+          ],
+          getPolygon: (d: any) => d.polygon,
+          getFillColor: [20, 40, 60, 255], // Dark ocean blue
+          getLineColor: [0, 0, 0, 0],
+          pickable: false,
+        })
+      );
+    }
+
+    // DGGS cells layer
+    layerList.push(
       new PolygonLayer<PolygonRecord>({
         id: 'dggs-polygons',
         data: polygons,
@@ -371,7 +397,7 @@ const MapView = ({
         pickable: true,
         autoHighlight: true,
       }),
-    ];
+    );
 
     if (selectionPolygons.length) {
       layerList.push(
@@ -388,7 +414,7 @@ const MapView = ({
     }
 
     return layerList;
-  }, [polygons, selectionPolygons]);
+  }, [polygons, selectionPolygons, useGlobe]);
 
   // Globe view configuration
   const views = useMemo(() => {
