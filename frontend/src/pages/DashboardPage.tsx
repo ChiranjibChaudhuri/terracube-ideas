@@ -17,7 +17,7 @@ type Dataset = {
   dggs_name?: string;
   level?: number;
   status?: string;
-  metadata_?: Record<string, any>;
+  metadata?: Record<string, any>;
 };
 
 type CellRecord = {
@@ -63,8 +63,8 @@ const DashboardPage = () => {
     settings: false
   });
 
-  const levelMin = Number(selectedDataset?.metadata_?.min_level ?? 0);
-  const levelMax = Number(selectedDataset?.metadata_?.max_level ?? 12);
+  const levelMin = Number(selectedDataset?.metadata?.min_level ?? 0);
+  const levelMax = Number(selectedDataset?.metadata?.max_level ?? 12);
   const clampedLevelMin = Number.isFinite(levelMin) ? levelMin : 0;
   const clampedLevelMax = Number.isFinite(levelMax) ? levelMax : 12;
 
@@ -79,7 +79,7 @@ const DashboardPage = () => {
     try {
       // Fetch cells from the dataset
       const result = await fetchCells(dataset.id, {
-        key: dataset.metadata_?.attr_key,
+        key: dataset.metadata?.attr_key,
         limit: '2000'
       });
       const cells = result.cells ?? [];
@@ -100,9 +100,9 @@ const DashboardPage = () => {
         setStatus('No cells found in dataset');
       }
       setSelectedDataset(dataset);
-      setRenderKey(dataset.metadata_?.attr_key ?? '');
-      if (dataset.metadata_?.min_level) {
-        setFixedLevel(dataset.metadata_.min_level);
+      setRenderKey(dataset.metadata?.attr_key ?? '');
+      if (dataset.metadata?.min_level) {
+        setFixedLevel(dataset.metadata.min_level);
       }
     } catch (err) {
       setStatus(err instanceof Error ? err.message : 'Failed to load dataset');
@@ -216,8 +216,8 @@ const DashboardPage = () => {
               mode={mapMode}
               overrideCells={operationCells}
               levelClamp={{
-                min: selectedDataset?.metadata_?.min_level,
-                max: selectedDataset?.metadata_?.max_level,
+                min: selectedDataset?.metadata?.min_level,
+                max: selectedDataset?.metadata?.max_level,
               }}
               levelOverride={levelMode === 'fixed' ? fixedLevel : null}
               onStats={setMapStats}

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import DeckGL from '@deck.gl/react';
-import { PolygonLayer, GeoJsonLayer, SolidPolygonLayer } from '@deck.gl/layers';
+import { PolygonLayer, GeoJsonLayer, SolidPolygonLayer, BitmapLayer } from '@deck.gl/layers';
 import { _GlobeView as GlobeView, WebMercatorViewport, type Layer, type MapViewState, type Color } from '@deck.gl/core';
 import Map from 'react-map-gl/maplibre';
 import 'maplibre-gl/dist/maplibre-gl.css';
@@ -9,6 +9,9 @@ import { getZoneLevel, listZoneIdsForExtent, resolveZonePolygons, type GeoExtent
 
 // Free basemap style - no API key required
 const BASEMAP_STYLE = 'https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json';
+
+// NASA Blue Marble earth texture for globe view (bright version)
+const EARTH_TEXTURE_URL = 'https://unpkg.com/three-globe@2.26.0/example/img/earth-blue-marble.jpg';
 
 type CellRecord = {
   dggid: string;
@@ -362,25 +365,13 @@ const MapView = ({
   const layers = useMemo<Layer[]>(() => {
     const layerList: Layer[] = [];
 
-    // Add earth background for globe view
+    // Add earth background for globe view using BitmapLayer
     if (useGlobe) {
-      // Simple earth layer using solid color polygons for landmass
       layerList.push(
-        new PolygonLayer({
-          id: 'earth-background',
-          data: [
-            // Ocean polygon (full globe)
-            {
-              polygon: [
-                [-180, -85], [180, -85], [180, 85], [-180, 85], [-180, -85]
-              ],
-              type: 'ocean'
-            }
-          ],
-          getPolygon: (d: any) => d.polygon,
-          getFillColor: [20, 40, 60, 255], // Dark ocean blue
-          getLineColor: [0, 0, 0, 0],
-          pickable: false,
+        new BitmapLayer({
+          id: 'earth-texture',
+          bounds: [-180, -90, 180, 90],
+          image: EARTH_TEXTURE_URL,
         })
       );
     }
