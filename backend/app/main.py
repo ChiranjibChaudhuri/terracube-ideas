@@ -12,11 +12,11 @@ async def lifespan(app: FastAPI):
     await init_db()
     await seed_admin()
     
-    # Load demo data
+    # Load real global data from Natural Earth
     from app.db import AsyncSessionLocal
-    from app.services.data_loader import load_initial_data
+    from app.services.real_data_loader import load_real_global_data
     async with AsyncSessionLocal() as session:
-        await load_initial_data(session)
+        await load_real_global_data(session)
         
     yield
     # Shutdown (close DB pool if needed, handled globally but good practice)
