@@ -5,3 +5,11 @@ node_modules
 *.log
 backend/dist
 frontend/dist
+__pycache__/
+*.pyc
+backend_node_archive/dist
+backend_node_archive/node_modules
+__pycache__/
+*.pyc
+.pyc
+__pycache__

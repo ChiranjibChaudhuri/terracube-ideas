@@ -63,6 +63,10 @@ const DashboardPage = () => {
     settings: false
   });
 
+  const activeLayer = selectedDataset
+    ? [...layers].reverse().find((layer) => layer.datasetId === selectedDataset.id)
+    : null;
+
   const levelMin = Number(selectedDataset?.metadata?.min_level ?? 0);
   const levelMax = Number(selectedDataset?.metadata?.max_level ?? 12);
   const clampedLevelMin = Number.isFinite(levelMin) ? levelMin : 0;
@@ -93,7 +97,12 @@ const DashboardPage = () => {
           data: dggids,
           visible: true,
           opacity: 0.6,
-          color: [31, 138, 138] // Sea-500 from our palette
+          // No default color - let MapView use value-based coloring from toColor()
+          datasetId: dataset.id,
+          attrKey: dataset.metadata?.attr_key,
+          dggsName: dataset.dggs_name,
+          minValue: dataset.metadata?.min_value,
+          maxValue: dataset.metadata?.max_value,
         });
         setStatus(`Loaded ${cells.length} cells from ${dataset.name}`);
       } else {
@@ -213,6 +222,14 @@ const DashboardPage = () => {
               datasetId={selectedDataset?.id}
               attributeKey={renderKey.trim() || null}
               tid={Number(renderTid) || 0}
+              dggsName={selectedDataset?.dggs_name ?? null}
+              layerStyle={activeLayer ? {
+                color: activeLayer.color,
+                opacity: activeLayer.opacity,
+                visible: activeLayer.visible,
+                minValue: activeLayer.minValue ?? selectedDataset?.metadata?.min_value,
+                maxValue: activeLayer.maxValue ?? selectedDataset?.metadata?.max_value,
+              } : undefined}
               mode={mapMode}
               overrideCells={operationCells}
               levelClamp={{
@@ -236,9 +253,9 @@ const DashboardPage = () => {
               <div className="map-legend">
                 <ColorLegend
                   title={selectedDataset?.name ?? 'Layer'}
-                  min={-10}
-                  max={10}
-                  unit=""
+                  min={activeLayer?.minValue ?? selectedDataset?.metadata?.min_value ?? -10}
+                  max={activeLayer?.maxValue ?? selectedDataset?.metadata?.max_value ?? 10}
+                  unit={selectedDataset?.metadata?.attr_key === 'temp_celsius' ? '°C' : ''}
                   colorRamp="viridis"
                 />
               </div>

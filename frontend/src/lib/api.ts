@@ -9,7 +9,11 @@ const decodeToken = (token: string): { exp?: number } | null => {
   try {
     const base64Url = token.split('.')[1];
     if (!base64Url) return null;
-    const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
+    let base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
+    const padding = base64.length % 4;
+    if (padding) {
+      base64 += '='.repeat(4 - padding);
+    }
     const payload = atob(base64);
     return JSON.parse(payload);
   } catch {
@@ -101,8 +105,12 @@ export const fetchDatasets = async (search?: string) => {
   return apiFetch(`/api/datasets${qs}`);
 };
 
-export const fetchCells = async (datasetId: string, params: Record<string, string> = {}) => {
-  const query = new URLSearchParams(params).toString();
+export const fetchCells = async (
+  datasetId: string,
+  params: Record<string, string | undefined | null> = {}
+) => {
+  const filtered = Object.entries(params).filter(([, value]) => value !== undefined && value !== null && value !== '');
+  const query = new URLSearchParams(filtered as [string, string][]).toString();
   return apiFetch(`/api/datasets/${datasetId}/cells${query ? `?${query}` : ''}`);
 };
 
@@ -134,31 +142,31 @@ export const runSpatialOperation = async (payload: Record<string, unknown>) => {
   });
 };
 
-export const getNeighbors = async (dggid: string) => {
+export const getNeighbors = async (dggid: string, dggsName?: string) => {
   return apiFetch('/api/ops/topology', {
     method: 'POST',
-    body: JSON.stringify({ type: 'neighbors', dggid }),
+    body: JSON.stringify({ type: 'neighbors', dggid, dggsName }),
   });
 };
 
-export const getParent = async (dggid: string) => {
+export const getParent = async (dggid: string, dggsName?: string) => {
   return apiFetch('/api/ops/topology', {
     method: 'POST',
-    body: JSON.stringify({ type: 'parent', dggid }),
+    body: JSON.stringify({ type: 'parent', dggid, dggsName }),
   });
 };
 
-export const getChildren = async (dggid: string) => {
+export const getChildren = async (dggid: string, dggsName?: string) => {
   return apiFetch('/api/ops/topology', {
     method: 'POST',
-    body: JSON.stringify({ type: 'children', dggid }),
+    body: JSON.stringify({ type: 'children', dggid, dggsName }),
   });
 };
 
-export const getVertices = async (dggid: string) => {
+export const getVertices = async (dggid: string, dggsName?: string) => {
   return apiFetch('/api/ops/topology', {
     method: 'POST',
-    body: JSON.stringify({ type: 'vertices', dggid }),
+    body: JSON.stringify({ type: 'vertices', dggid, dggsName }),
   });
 };
 

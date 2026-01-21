@@ -1,5 +1,6 @@
 from fastapi import APIRouter, HTTPException, Body, Depends
 from pydantic import BaseModel
+from typing import Optional
 from app.dggal_utils import get_dggal_service
 from app.auth import get_current_user
 
@@ -8,10 +9,11 @@ router = APIRouter(prefix="/api/ops", tags=["topology"])
 class SpatialOpRequest(BaseModel):
     type: str
     dggid: str
+    dggsName: Optional[str] = None
 
 @router.post("/topology")
 async def handle_topology_op(request: SpatialOpRequest = Body(...)):
-    service = get_dggal_service()
+    service = get_dggal_service(request.dggsName or "IVEA3H")
     
     try:
         if request.type == "neighbors":

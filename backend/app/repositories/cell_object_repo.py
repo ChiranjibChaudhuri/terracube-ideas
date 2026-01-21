@@ -9,16 +9,25 @@ class CellObjectRepository(BaseRepository[CellObject]):
     def __init__(self, session: AsyncSession):
         super().__init__(session, CellObject)
 
-    async def execute_set_operation(self, operation: str, dataset_ids: List[str], dggid_filter: Optional[List[str]] = None, limit: int = 1000):
+    async def execute_set_operation(
+        self,
+        operation: str,
+        dataset_ids: List[str],
+        dggid_filter: Optional[List[str]] = None,
+        limit: int = 1000,
+        attr_key: Optional[str] = None,
+    ):
         if not dataset_ids:
             return []
             
         selects = []
         for ds_id in dataset_ids:
             # Cast ds_id string to UUID if needed, but SQLAlchemy handles it if model is UUID
-            stmt = select(CellObject.dggid).where(CellObject.dataset_id == uuid.UUID(ds_id))
+            stmt = select(CellObject.dggid).where(CellObject.dataset_id == uuid.UUID(ds_id)).distinct()
             if dggid_filter:
                  stmt = stmt.where(CellObject.dggid.in_(dggid_filter))
+            if attr_key:
+                stmt = stmt.where(CellObject.attr_key == attr_key)
             selects.append(stmt)
             
         final_stmt = None
@@ -38,7 +47,12 @@ class CellObjectRepository(BaseRepository[CellObject]):
         result = await self.session.execute(final_stmt)
         return list(result.scalars().all())
 
-    async def get_values_by_dggids(self, dataset_id: str, dggids: List[str]) -> List[float]:
+    async def get_values_by_dggids(
+        self,
+        dataset_id: str,
+        dggids: List[str],
+        attr_key: Optional[str] = None,
+    ) -> List[float]:
         """Fetch numeric values for a set of dggids in a dataset."""
         if not dggids:
             return []
@@ -48,6 +62,8 @@ class CellObjectRepository(BaseRepository[CellObject]):
             CellObject.dggid.in_(dggids),
             CellObject.value_num.isnot(None)
         )
+        if attr_key:
+            stmt = stmt.where(CellObject.attr_key == attr_key)
         
         result = await self.session.execute(stmt)
         return list(result.scalars().all())

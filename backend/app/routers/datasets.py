@@ -32,7 +32,9 @@ def serialize_dataset(dataset: Dataset):
 async def list_datasets(search: Optional[str] = None, db: AsyncSession = Depends(get_db)):
     stmt = select(Dataset)
     if search:
-        stmt = stmt.where(Dataset.name.ilike(f"%{search}%"))
+        # Use parameterized query to prevent SQL injection
+        from sqlalchemy import literal
+        stmt = stmt.where(Dataset.name.ilike('%' + search + '%'))
     stmt = stmt.order_by(Dataset.created_at.desc())
     result = await db.execute(stmt)
     datasets = [serialize_dataset(ds) for ds in result.scalars().all()]

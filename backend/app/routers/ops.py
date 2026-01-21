@@ -163,6 +163,9 @@ async def run_spatial(request: SpatialRequest = Body(...), db: AsyncSession = De
     if str(dataset_a) not in datasets or str(dataset_b) not in datasets:
         raise HTTPException(status_code=404, detail="Dataset not found")
 
+    if datasets[str(dataset_a)].dggs_name != datasets[str(dataset_b)].dggs_name:
+        raise HTTPException(status_code=409, detail="DGGS mismatch between datasets.")
+
     range_a = _range_from_metadata(datasets[str(dataset_a)].metadata_)
     range_b = _range_from_metadata(datasets[str(dataset_b)].metadata_)
 
@@ -173,23 +176,24 @@ async def run_spatial(request: SpatialRequest = Body(...), db: AsyncSession = De
         )
 
     if request.type == "intersection":
+        key_b = request.keyB or request.keyA
         clauses = [
             "a.dataset_id = :dataset_a",
             "b.dataset_id = :dataset_b",
             "a.dggid = b.dggid",
             "a.attr_key = :key_a",
+            "b.attr_key = :key_b",
         ]
         params = {
             "dataset_a": dataset_a,
             "dataset_b": dataset_b,
             "key_a": request.keyA,
+            "key_b": key_b,
             "limit": limit,
         }
-        if request.keyB:
-            clauses.append("b.attr_key = :key_b")
-            params["key_b"] = request.keyB
         if request.tid is not None:
             clauses.append("a.tid = :tid")
+            clauses.append("b.tid = :tid")
             params["tid"] = request.tid
 
         sql = text(
@@ -206,20 +210,24 @@ async def run_spatial(request: SpatialRequest = Body(...), db: AsyncSession = De
         return {"rows": [dict(row) for row in rows.mappings().all()], "operation": "intersection"}
 
     if request.type == "zonal":
+        key_b = request.keyB or request.keyA
         clauses = [
             "a.dataset_id = :dataset_a",
             "b.dataset_id = :dataset_b",
             "a.attr_key = :key_a",
+            "b.attr_key = :key_b",
             "a.dggid = b.dggid",
         ]
         params = {
             "dataset_a": dataset_a,
             "dataset_b": dataset_b,
             "key_a": request.keyA,
+            "key_b": key_b,
             "limit": limit,
         }
         if request.tid is not None:
             clauses.append("a.tid = :tid")
+            clauses.append("b.tid = :tid")
             params["tid"] = request.tid
 
         sql = text(

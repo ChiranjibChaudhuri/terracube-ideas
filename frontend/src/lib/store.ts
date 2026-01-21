@@ -7,7 +7,12 @@ export interface LayerConfig {
     data: string[]; // List of DGGIDs
     visible: boolean;
     opacity: number;
-    color: [number, number, number];
+    color?: [number, number, number]; // Optional - if missing, use value-based coloring
+    datasetId?: string;
+    attrKey?: string;
+    dggsName?: string;
+    minValue?: number; // For color gradient range
+    maxValue?: number; // For color gradient range
 }
 
 interface AppState {

@@ -1,8 +1,8 @@
 from contextlib import asynccontextmanager
+import logging
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.config import settings
-from app.routers import auth
 from app.init_db import init_db
 from app.seed import seed_admin
 
@@ -12,11 +12,18 @@ async def lifespan(app: FastAPI):
     await init_db()
     await seed_admin()
     
-    # Load real global data from Natural Earth
-    from app.db import AsyncSessionLocal
-    from app.services.real_data_loader import load_real_global_data
-    async with AsyncSessionLocal() as session:
-        await load_real_global_data(session)
+    # Load real global data from Natural Earth (optional)
+    if settings.LOAD_REAL_DATA:
+        logger = logging.getLogger("uvicorn.error")
+        from app.db import AsyncSessionLocal
+        from app.services.real_data_loader import load_real_global_data
+        from app.services.data_loader import load_initial_data
+        try:
+            async with AsyncSessionLocal() as session:
+                await load_real_global_data(session)
+                await load_initial_data(session)  # Also load demo raster datasets
+        except Exception as exc:
+            logger.warning(f"Skipping data load: {exc}")
         
     yield
     # Shutdown (close DB pool if needed, handled globally but good practice)
@@ -51,7 +58,15 @@ Instrumentator().instrument(app).expose(app)
 
 @app.get("/api/health")
 async def health_check():
-    return {"status": "ok"}
+    from app.db import AsyncSessionLocal
+    from sqlalchemy import text
+    try:
+        async with AsyncSessionLocal() as session:
+            await session.execute(text("SELECT 1"))
+        return {"status": "ok", "database": "connected"}
+    except Exception as e:
+        from fastapi.responses import JSONResponse
+        return JSONResponse(status_code=503, content={"status": "unhealthy", "error": str(e)})
 
 if __name__ == "__main__":
     import uvicorn

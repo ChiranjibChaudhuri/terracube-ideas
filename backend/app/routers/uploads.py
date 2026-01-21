@@ -5,6 +5,7 @@ from app.repositories.upload_repo import UploadRepository
 from app.repositories.dataset_repo import DatasetRepository
 from app.services.ingest import process_upload
 from app.auth import get_current_user
+from app.config import settings
 import shutil
 import os
 import uuid
@@ -12,7 +13,8 @@ from typing import Optional
 
 router = APIRouter(prefix="/api/uploads", tags=["uploads"])
 
-UPLOAD_DIR = "/tmp/uploads"
+UPLOAD_DIR = settings.UPLOAD_DIR
+ALLOWED_EXTENSIONS = {".csv", ".json", ".tif", ".tiff"}
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
 @router.post("/")
@@ -31,10 +33,20 @@ async def upload_file(
 ):
     # Save file to disk
     file_id = str(uuid.uuid4())
-    file_path = os.path.join(UPLOAD_DIR, f"{file_id}_{file.filename}")
+    filename = os.path.basename(file.filename or "upload")
+    ext = os.path.splitext(filename)[1].lower()
+    if ext not in ALLOWED_EXTENSIONS:
+        raise HTTPException(status_code=400, detail="Unsupported file type.")
+    file_path = os.path.join(UPLOAD_DIR, f"{file_id}_{filename}")
     
     with open(file_path, "wb") as buffer:
         shutil.copyfileobj(file.file, buffer)
+    await file.close()
+
+    size_bytes = os.path.getsize(file_path)
+    if settings.MAX_UPLOAD_BYTES and size_bytes > settings.MAX_UPLOAD_BYTES:
+        os.remove(file_path)
+        raise HTTPException(status_code=413, detail="File too large.")
         
     dataset_repo = DatasetRepository(db)
     ds_uuid = None
@@ -46,6 +58,7 @@ async def upload_file(
         existing = await dataset_repo.get_by_id(ds_uuid)
         if not existing:
             raise HTTPException(status_code=404, detail="Dataset not found")
+        dggs_name = existing.dggs_name or dggs_name
     else:
         name = dataset_name.strip() or os.path.splitext(file.filename or "Dataset")[0]
         metadata = {}
@@ -68,6 +81,18 @@ async def upload_file(
         ds_uuid = created.id
 
     # Trigger background processing via Celery
+    repo = UploadRepository(db)
+    await repo.create(
+        id=uuid.UUID(file_id),
+        dataset_id=ds_uuid,
+        filename=filename,
+        storage_key=file_path,
+        mime_type=file.content_type,
+        size_bytes=size_bytes,
+        status='queued'
+    )
+    await db.commit()
+
     process_upload.delay(
         str(file_id),
         file_path,
@@ -78,18 +103,5 @@ async def upload_file(
         max_level,
         source_type or None,
     )
-
-    # Store metadata in DB using Repo
-    repo = UploadRepository(db)
-    await repo.create(
-        id=uuid.UUID(file_id),
-        dataset_id=ds_uuid,
-        filename=file.filename,
-        storage_key=file_path,
-        mime_type=file.content_type,
-        size_bytes=os.path.getsize(file_path),
-        status='processing'
-    )
-    await db.commit()
         
     return {"id": file_id, "status": "processing", "dataset_id": str(ds_uuid)}

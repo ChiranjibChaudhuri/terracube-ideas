@@ -5,6 +5,7 @@ import json
 import os
 import uuid
 from typing import Any, Dict, Iterable, List, Optional, Tuple
+from rasterio.warp import transform as transform_coords
 from app.dggal_utils import get_dggal_service
 from app.db import get_db_pool
 
@@ -137,7 +138,7 @@ async def _process_upload_async(
     try:
         dataset_uuid = uuid.UUID(dataset_id)
         upload_uuid = uuid.UUID(upload_id)
-        service = get_dggal_service()
+        service = get_dggal_service(dggs_name or "IVEA3H")
         
         pool = await get_db_pool()
         
@@ -159,18 +160,28 @@ async def _process_upload_async(
 
                     if zones:
                         data = src.read(1)
+                        src_crs = src.crs
+                        nodata = src.nodata
+                        def to_dataset_coords(lon: float, lat: float):
+                            if not src_crs:
+                                return lon, lat
+                            if str(src_crs) in ("EPSG:4326", "OGC:CRS84"):
+                                return lon, lat
+                            xs, ys = transform_coords("EPSG:4326", src_crs, [lon], [lat])
+                            return xs[0], ys[0]
                         batch = []
                         raster_key = attr_key or "elevation"
                         for zone_id in zones:
                             centroid = service.get_centroid(zone_id)
-                            row, col = src.index(centroid["lon"], centroid["lat"])
+                            x, y = to_dataset_coords(centroid["lon"], centroid["lat"])
+                            row, col = src.index(x, y)
 
                             if 0 <= row < src.height and 0 <= col < src.width:
                                 val = data[row, col]
-                                if val != src.nodata:
+                                if nodata is None or val != nodata:
                                     batch.append((
                                         zone_id,
-                                        1,
+                                        0,
                                         raster_key,
                                         None,
                                         float(val),
@@ -265,3 +276,10 @@ async def _process_upload_async(
                 await _set_upload_status(conn, upload_id, "failed", str(e))
         except Exception:
             logger.error("Failed to update upload status.")
+    finally:
+        try:
+            os.remove(file_path)
+        except FileNotFoundError:
+            pass
+        except Exception as e:
+            logger.warning(f"Failed to remove upload file {file_path}: {e}")

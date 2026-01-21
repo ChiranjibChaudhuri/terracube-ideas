@@ -13,17 +13,19 @@ router = APIRouter(
 class BufferRequest(BaseModel):
     dggids: List[str]
     iterations: int = 1
+    dggsName: Optional[str] = None
 
 class AggregateRequest(BaseModel):
     dggids: List[str]
+    dggsName: Optional[str] = None
 
 class MaskRequest(BaseModel):
     source_dggids: List[str]
     mask_dggids: List[str]
 
 @router.post("/buffer")
-async def buffer_op(request: BufferRequest):
-    engine = SpatialEngine()
+async def buffer_op(request: BufferRequest, user: dict = Depends(get_current_user)):
+    engine = SpatialEngine(request.dggsName or "IVEA3H")
     try:
         result = await engine.buffer(request.dggids, request.iterations)
         return {"result_count": len(result), "dggids": result}
@@ -31,8 +33,8 @@ async def buffer_op(request: BufferRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/aggregate")
-async def aggregate_op(request: AggregateRequest):
-    engine = SpatialEngine()
+async def aggregate_op(request: AggregateRequest, user: dict = Depends(get_current_user)):
+    engine = SpatialEngine(request.dggsName or "IVEA3H")
     try:
         result = await engine.aggregate(request.dggids)
         return {"result_count": len(result), "dggids": result}
@@ -44,7 +46,7 @@ class SetOpRequest(BaseModel):
     set_b: List[str]
 
 @router.post("/union")
-async def union_op(request: SetOpRequest):
+async def union_op(request: SetOpRequest, user: dict = Depends(get_current_user)):
     engine = SpatialEngine()
     try:
         result = engine.union(request.set_a, request.set_b)
@@ -53,7 +55,7 @@ async def union_op(request: SetOpRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/intersection")
-async def intersection_op(request: SetOpRequest):
+async def intersection_op(request: SetOpRequest, user: dict = Depends(get_current_user)):
     engine = SpatialEngine()
     try:
         result = engine.intersection(request.set_a, request.set_b)
@@ -62,7 +64,7 @@ async def intersection_op(request: SetOpRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/difference")
-async def difference_op(request: SetOpRequest):
+async def difference_op(request: SetOpRequest, user: dict = Depends(get_current_user)):
     engine = SpatialEngine()
     try:
         result = engine.difference(request.set_a, request.set_b)
@@ -71,7 +73,7 @@ async def difference_op(request: SetOpRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/mask")
-async def mask_op(request: MaskRequest):
+async def mask_op(request: MaskRequest, user: dict = Depends(get_current_user)):
     engine = SpatialEngine()
     try:
         result = engine.mask(request.source_dggids, request.mask_dggids)

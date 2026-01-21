@@ -23,9 +23,16 @@ class Settings(BaseSettings):
     ADMIN_PASSWORD: str = "admin123"
     ADMIN_NAME: str = "System Admin"
 
+    # Uploads
+    UPLOAD_DIR: str = "/tmp/uploads"
+    MAX_UPLOAD_BYTES: int = 200 * 1024 * 1024
+
     # GEBCO
     GEBCO_URL: Optional[str] = None
     GEBCO_MAX_IMAGE_PIXELS: int = 8000000
+
+    # Data loading
+    LOAD_REAL_DATA: bool = True
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 

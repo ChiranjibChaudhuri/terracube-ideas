@@ -13,6 +13,7 @@ This repo is a minimal end-to-end demo of an IDEAS-style data model running on I
 - `backend/`: FastAPI API, Postgres schema, Celery worker for ingestion.
 - `frontend/`: Vite + React + Deck.gl UI with GSAP/Framer Motion landing page and DGGS dashboard.
 - `docker-compose.yml`: Postgres, Redis, MinIO.
+- `backend_node_archive/`: legacy Fastify backend (reference only; not used by current app).
 
 ## Quick start
 1) Start infra:

@@ -58,14 +58,14 @@ async def load_initial_data(session: AsyncSession):
     )
 
     # =========================================================================
-    # DATASET 3: Ocean Bathymetry (Raster - Level 3)
+    # DATASET 3: Ocean Bathymetry (Raster - Level 4 - Global)
     # =========================================================================
     await create_raster_dataset(
         session, dataset_repo, dgg_service, admin.id,
-        name="Ocean Bathymetry (Lv3)",
+        name="Ocean Bathymetry (Lv4)",
         description="Simulated ocean depth values (inspired by GEBCO)",
-        level=3,
-        bbox=[-60, -180, 60, 180],  # Global oceans
+        level=4,
+        bbox=[-75, -180, 75, 180],  # Global oceans
         attr_key="depth",
         value_range=(-8000, 0),  # Depth in meters (negative = below sea level)
         apply_geographic_pattern=True,
@@ -73,14 +73,14 @@ async def load_initial_data(session: AsyncSession):
     )
 
     # =========================================================================
-    # DATASET 4: Temperature (Raster - Level 2)
+    # DATASET 4: Temperature (Raster - Level 4 - Global)
     # =========================================================================
     await create_raster_dataset(
         session, dataset_repo, dgg_service, admin.id,
-        name="Global Temperature (Lv2)",
+        name="Global Temperature (Lv4)",
         description="Simulated annual mean temperature",
-        level=2,
-        bbox=[-70, -180, 70, 180],
+        level=4,
+        bbox=[-80, -180, 80, 180],  # Near-global coverage
         attr_key="temp_celsius",
         value_range=(-30, 45),
         apply_geographic_pattern=True,
@@ -88,16 +88,61 @@ async def load_initial_data(session: AsyncSession):
     )
 
     # =========================================================================
-    # DATASET 5: Elevation (Raster - Level 3)
+    # DATASET 5: Elevation (Raster - Level 4 - Global)
     # =========================================================================
     await create_raster_dataset(
         session, dataset_repo, dgg_service, admin.id,
-        name="Terrain Elevation (Lv3)",
-        description="Simulated terrain elevation data",
-        level=3,
-        bbox=[25, -125, 50, -65],  # Continental US
+        name="Global Elevation (Lv4)",
+        description="Simulated global terrain elevation",
+        level=4,
+        bbox=[-70, -180, 70, 180],  # Global land coverage
         attr_key="elevation",
         value_range=(0, 4500),  # Elevation in meters
+        apply_geographic_pattern=True,
+        pattern_type="elevation"
+    )
+
+    # =========================================================================
+    # DATASET 6: North America Climate (Regional - Level 5)
+    # =========================================================================
+    await create_raster_dataset(
+        session, dataset_repo, dgg_service, admin.id,
+        name="North America Climate (Lv5)",
+        description="Regional temperature data for North America",
+        level=5,
+        bbox=[24, -130, 55, -65],  # Continental US + Canada
+        attr_key="temp_celsius",
+        value_range=(-20, 35),
+        apply_geographic_pattern=True,
+        pattern_type="temperature"
+    )
+
+    # =========================================================================
+    # DATASET 7: Europe Climate (Regional - Level 5)
+    # =========================================================================
+    await create_raster_dataset(
+        session, dataset_repo, dgg_service, admin.id,
+        name="Europe Climate (Lv5)",
+        description="Regional temperature data for Europe",
+        level=5,
+        bbox=[35, -10, 70, 40],  # Western/Central Europe
+        attr_key="temp_celsius",
+        value_range=(-10, 30),
+        apply_geographic_pattern=True,
+        pattern_type="temperature"
+    )
+
+    # =========================================================================
+    # DATASET 8: South America Elevation (Regional - Level 5)
+    # =========================================================================
+    await create_raster_dataset(
+        session, dataset_repo, dgg_service, admin.id,
+        name="South America Elevation (Lv5)",
+        description="Regional terrain elevation for South America (Andes focus)",
+        level=5,
+        bbox=[-55, -80, 12, -35],  # South America
+        attr_key="elevation",
+        value_range=(0, 6500),  # Higher for Andes mountains
         apply_geographic_pattern=True,
         pattern_type="elevation"
     )

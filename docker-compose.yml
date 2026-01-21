@@ -68,6 +68,7 @@ services:
       MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY:-minioadmin}
       MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:-minioadmin}
       MINIO_BUCKET: ${MINIO_BUCKET:-ideas-staging}
+      UPLOAD_DIR: ${UPLOAD_DIR:-/tmp/uploads}
       # Admin user - initialized on startup
       ADMIN_EMAIL: ${ADMIN_EMAIL:-admin@terracube.geo}
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:-admin123}
@@ -76,6 +77,7 @@ services:
     volumes:
       - ./backend/app:/app/app
       - ./backend/db:/app/db
+      - uploads:/tmp/uploads
     depends_on:
       postgres:
         condition: service_healthy
@@ -100,6 +102,7 @@ services:
       MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY:-minioadmin}
       MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:-minioadmin}
       MINIO_BUCKET: ${MINIO_BUCKET:-ideas-staging}
+      UPLOAD_DIR: ${UPLOAD_DIR:-/tmp/uploads}
     depends_on:
       postgres:
         condition: service_healthy
@@ -107,6 +110,10 @@ services:
         condition: service_started
       backend:
         condition: service_started
+    volumes:
+      - ./backend/app:/app/app
+      - ./backend/db:/app/db
+      - uploads:/tmp/uploads
 
   frontend:
     build:
@@ -122,3 +129,4 @@ services:
 volumes:
   pgdata:
   minio-data:
+  uploads:

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { useDatasets } from '../lib/api-hooks';
 
 interface Dataset {
@@ -6,7 +6,7 @@ interface Dataset {
     name: string;
     description?: string;
     level?: number;
-    metadata_?: {
+    metadata?: {
         source_type?: string;
         attr_key?: string;
     };
@@ -19,14 +19,22 @@ interface DatasetSearchProps {
 export const DatasetSearch: React.FC<DatasetSearchProps> = ({ onSelect }) => {
     const { data: datasets = [], isLoading } = useDatasets();
     const [query, setQuery] = useState('');
+    const [debouncedQuery, setDebouncedQuery] = useState('');
     const [isOpen, setIsOpen] = useState(false);
     const containerRef = useRef<HTMLDivElement>(null);
 
-    // Filter datasets based on search query
-    const filteredDatasets = datasets.filter((ds: Dataset) =>
-        ds.name.toLowerCase().includes(query.toLowerCase()) ||
-        (ds.description?.toLowerCase().includes(query.toLowerCase()))
-    );
+    // Debounce search query (300ms)
+    useEffect(() => {
+        const timer = setTimeout(() => setDebouncedQuery(query), 300);
+        return () => clearTimeout(timer);
+    }, [query]);
+
+    // Filter datasets based on debounced search query
+    const filteredDatasets = useMemo(() =>
+        datasets.filter((ds: Dataset) =>
+            ds.name.toLowerCase().includes(debouncedQuery.toLowerCase()) ||
+            (ds.description?.toLowerCase().includes(debouncedQuery.toLowerCase()))
+        ), [datasets, debouncedQuery]);
 
     // Close dropdown when clicking outside
     useEffect(() => {
@@ -82,7 +90,7 @@ export const DatasetSearch: React.FC<DatasetSearchProps> = ({ onSelect }) => {
                                 <div className="dataset-search__item-main">
                                     <span className="dataset-search__item-name">{ds.name}</span>
                                     <span className="dataset-search__item-type">
-                                        {ds.metadata_?.source_type || 'data'}
+                                        {ds.metadata?.source_type || 'data'}
                                     </span>
                                 </div>
                                 {ds.description && (

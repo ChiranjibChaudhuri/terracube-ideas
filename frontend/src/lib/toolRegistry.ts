@@ -57,6 +57,7 @@ export const TOOLS: ToolConfig[] = [
             { name: 'layer', label: 'Input Layer', type: 'layer', required: true },
             { name: 'targetLevel', label: 'Target Resolution', type: 'number', default: 2 },
         ],
+        apiEndpoint: '/api/toolbox/aggregate',
     },
     {
         id: 'convexHull',
@@ -100,7 +101,7 @@ export const TOOLS: ToolConfig[] = [
             { name: 'layerA', label: 'Layer A', type: 'layer', required: true },
             { name: 'layerB', label: 'Layer B', type: 'layer', required: true },
         ],
-        apiEndpoint: '/api/toolbox/set-op',
+        apiEndpoint: '/api/toolbox/union',
     },
     {
         id: 'intersection',
@@ -112,7 +113,7 @@ export const TOOLS: ToolConfig[] = [
             { name: 'layerA', label: 'Layer A', type: 'layer', required: true },
             { name: 'layerB', label: 'Layer B', type: 'layer', required: true },
         ],
-        apiEndpoint: '/api/toolbox/set-op',
+        apiEndpoint: '/api/toolbox/intersection',
     },
     {
         id: 'difference',
@@ -124,7 +125,7 @@ export const TOOLS: ToolConfig[] = [
             { name: 'layerA', label: 'Layer A', type: 'layer', required: true },
             { name: 'layerB', label: 'Layer B', type: 'layer', required: true },
         ],
-        apiEndpoint: '/api/toolbox/set-op',
+        apiEndpoint: '/api/toolbox/difference',
     },
     {
         id: 'symmetricDifference',
@@ -136,7 +137,7 @@ export const TOOLS: ToolConfig[] = [
             { name: 'layerA', label: 'Layer A', type: 'layer', required: true },
             { name: 'layerB', label: 'Layer B', type: 'layer', required: true },
         ],
-        apiEndpoint: '/api/toolbox/set-op',
+        apiEndpoint: undefined,
     },
     {
         id: 'clip',
@@ -148,6 +149,7 @@ export const TOOLS: ToolConfig[] = [
             { name: 'layer', label: 'Input Layer', type: 'layer', required: true },
             { name: 'mask', label: 'Mask Layer', type: 'layer', required: true },
         ],
+        apiEndpoint: '/api/toolbox/mask',
     },
 
     // === PROXIMITY ===
@@ -205,7 +207,7 @@ export const TOOLS: ToolConfig[] = [
                 ], default: 'mean'
             },
         ],
-        apiEndpoint: '/api/toolbox/zonal-stats',
+        apiEndpoint: '/api/stats/zonal_stats',
     },
     {
         id: 'summaryStats',

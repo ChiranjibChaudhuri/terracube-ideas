@@ -39,6 +39,8 @@ async def login(data: LoginRequest, db: AsyncSession = Depends(get_db)):
                 "name": user.name
             }
         }
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Login error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -58,6 +60,8 @@ async def register(data: RegisterRequest, db: AsyncSession = Depends(get_db)):
             password_hash=password_hash, 
             name=data.name
         )
+        await db.commit()
+        await db.refresh(new_user)  # Ensure user data is loaded after commit
         
         token = create_access_token({"sub": str(new_user.id), "email": new_user.email})
         

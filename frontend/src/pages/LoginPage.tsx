@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { login, register } from '../lib/api';
 
@@ -9,7 +9,16 @@ const LoginPage = () => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
+  const [redirectMessage, setRedirectMessage] = useState('');
   const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    const reason = sessionStorage.getItem('auth_redirect_reason');
+    if (reason) {
+      setRedirectMessage(reason);
+      sessionStorage.removeItem('auth_redirect_reason');
+    }
+  }, []);
 
   const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -77,6 +86,7 @@ const LoginPage = () => {
           />
         </div>
 
+        {redirectMessage && <p style={{ color: '#2b6cb0' }}>{redirectMessage}</p>}
         {error && <p style={{ color: '#b7412d' }}>{error}</p>}
 
         <button className="button-primary" type="submit" disabled={loading}>

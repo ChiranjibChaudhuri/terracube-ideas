@@ -3,6 +3,7 @@ import { ToolPalette } from './ToolPalette';
 import { ToolModal } from './ToolModal';
 import { useAppStore } from '../lib/store';
 import { type ToolConfig } from '../lib/toolRegistry';
+import { apiFetch } from '../lib/api';
 
 /**
  * ToolboxPanel - Redesigned with two main sections:
@@ -10,7 +11,7 @@ import { type ToolConfig } from '../lib/toolRegistry';
  * 2. Tools tab - Scalable tool palette with categories
  */
 export const ToolboxPanel: React.FC = () => {
-    const { layers, updateLayer } = useAppStore();
+    const { layers, updateLayer, addLayer } = useAppStore();
     const [activeTab, setActiveTab] = useState<'style' | 'tools'>('style');
     const [selectedLayerId, setSelectedLayerId] = useState<string | null>(
         layers.length > 0 ? layers[0].id : null
@@ -33,10 +34,70 @@ export const ToolboxPanel: React.FC = () => {
 
     // Handle tool execution
     const handleToolExecute = async (toolId: string, params: Record<string, any>) => {
-        console.log('Executing tool:', toolId, params);
-        // TODO: Call backend API based on tool.apiEndpoint
-        // This is where you'd integrate with your backend
-        return new Promise(resolve => setTimeout(resolve, 1000));
+        const tool = selectedTool;
+        if (!tool?.apiEndpoint) {
+            throw new Error('This tool is not available yet.');
+        }
+
+        const getLayer = (id: string) => layers.find(layer => layer.id === id);
+        const layerA = getLayer(params.layerA || params.layer || params.zones || '');
+        const layerB = getLayer(params.layerB || params.values || '');
+
+        let payload: Record<string, any> = {};
+        if (toolId === 'buffer') {
+            if (!layerA) throw new Error('Select a valid layer.');
+            payload = {
+                dggids: layerA.data,
+                iterations: Number(params.rings ?? 1),
+                dggsName: layerA.dggsName
+            };
+        } else if (toolId === 'simplify') {
+            if (!layerA) throw new Error('Select a valid layer.');
+            payload = {
+                dggids: layerA.data,
+                levels: Number(params.targetLevel ?? 1),
+                dggsName: layerA.dggsName
+            };
+        } else if (toolId === 'union' || toolId === 'intersection' || toolId === 'difference') {
+            if (!layerA || !layerB) throw new Error('Select two valid layers.');
+            payload = { set_a: layerA.data, set_b: layerB.data };
+        } else if (toolId === 'clip') {
+            const maskLayer = getLayer(params.mask || '');
+            if (!layerA || !maskLayer) throw new Error('Select input and mask layers.');
+            payload = { source_dggids: layerA.data, mask_dggids: maskLayer.data };
+        } else if (toolId === 'zonalStats') {
+            if (!layerA?.datasetId || !layerB?.datasetId) {
+                throw new Error('Zonal stats requires layers loaded from datasets.');
+            }
+            payload = {
+                zone_dataset_id: layerA.datasetId,
+                value_dataset_id: layerB.datasetId,
+                operation: String(params.statistic ?? 'mean').toUpperCase()
+            };
+        } else {
+            throw new Error('Unsupported tool.');
+        }
+
+        const result = await apiFetch(tool.apiEndpoint, {
+            method: 'POST',
+            body: JSON.stringify(payload)
+        });
+
+        if (result?.dggids && Array.isArray(result.dggids)) {
+            const dggsName = layerA?.dggsName && layerA?.dggsName === layerB?.dggsName
+                ? layerA.dggsName
+                : layerA?.dggsName;
+            addLayer({
+                id: `tool-${toolId}-${Date.now()}`,
+                name: `${tool.name}`,
+                type: 'dggs',
+                data: result.dggids,
+                visible: true,
+                opacity: 0.6,
+                color: [90, 161, 255],
+                dggsName
+            });
+        }
     };
 
     return (

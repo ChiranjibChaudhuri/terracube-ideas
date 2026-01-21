@@ -24,29 +24,47 @@ class ZonalStatsRequest(BaseModel):
 @router.post("/zonal_stats")
 async def calculate_zonal_stats(
     request: ZonalStatsRequest, 
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
+    user: dict = Depends(get_current_user)
 ):
     try:
         repo = CellObjectRepository(db)
-        dataset_repo = CellObjectRepository(db) # We need DatasetRepo really, but let's use SQL for speed
-        # Actually we need the levels.
-        # Let's verify levels from 'datasets' table.
         from sqlalchemy import text
         
-        async def get_level(ds_id):
-            res = await db.execute(text("SELECT level FROM datasets WHERE id = :id"), {"id": ds_id})
-            return res.scalar() or 0
-            
-        zone_level = await get_level(request.zone_dataset_id)
-        value_level = await get_level(request.value_dataset_id)
+        async def get_dataset_info(ds_id):
+            res = await db.execute(
+                text("SELECT level, metadata, dggs_name FROM datasets WHERE id = :id"),
+                {"id": ds_id},
+            )
+            row = res.mappings().first()
+            if not row:
+                raise HTTPException(status_code=404, detail="Dataset not found")
+            return {
+                "level": row.get("level") or 0,
+                "metadata": row.get("metadata") or {},
+                "dggs_name": row.get("dggs_name") or "IVEA3H",
+            }
+
+        zone_info = await get_dataset_info(request.zone_dataset_id)
+        value_info = await get_dataset_info(request.value_dataset_id)
+        zone_level = zone_info["level"]
+        value_level = value_info["level"]
+        value_attr_key = value_info["metadata"].get("attr_key") if isinstance(value_info["metadata"], dict) else None
+        if zone_info["dggs_name"] != value_info["dggs_name"]:
+            raise HTTPException(status_code=409, detail="DGGS mismatch between datasets.")
         
         logger.info(f"Zonal Stats: Zone Lv {zone_level} vs Value Lv {value_level}")
         
-        engine = SpatialEngine()
+        engine = SpatialEngine(zone_info["dggs_name"])
         
-        # Step A: Get IDs
-        zone_ids = await repo.execute_set_operation("union", [request.zone_dataset_id], limit=100000)
-        value_ids_all = await repo.execute_set_operation("union", [request.value_dataset_id], limit=100000)
+        # Step A: Get IDs - filter by attr_key to avoid mixing attributes
+        zone_attr_key = zone_info["metadata"].get("attr_key") if isinstance(zone_info["metadata"], dict) else None
+        zone_ids = await repo.execute_set_operation(
+            "union", [request.zone_dataset_id], limit=100000, attr_key=zone_attr_key
+        )
+        value_ids_all = await repo.execute_set_operation(
+            "union", [request.value_dataset_id], limit=100000, attr_key=value_attr_key
+        )
         
         # Step B: Normalize
         # If Zone is coarser (lower level) than Value, expand Zone.
@@ -78,7 +96,7 @@ async def calculate_zonal_stats(
             }
 
         # Step D: Get Values
-        values = await repo.get_values_by_dggids(request.value_dataset_id, overlap_ids)
+        values = await repo.get_values_by_dggids(request.value_dataset_id, overlap_ids, attr_key=value_attr_key)
         
         if not values:
              return {
@@ -110,6 +128,8 @@ async def calculate_zonal_stats(
             "overlap_cells": len(overlap_ids)
         }
 
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Zonal Stats Error: {e}")
         raise HTTPException(status_code=500, detail=str(e))

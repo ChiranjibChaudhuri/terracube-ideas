@@ -1,11 +1,13 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import DeckGL from '@deck.gl/react';
 import { PolygonLayer } from '@deck.gl/layers';
+import { COORDINATE_SYSTEM, MapView as DeckMapView } from '@deck.gl/core';
 import Map from 'react-map-gl/maplibre';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import { resolveZonePolygons } from '../lib/dggal';
 import { useAppStore, type LayerConfig } from '../lib/store';
-import { useDatasets, useAnalyticsQuery } from '../lib/api-hooks';
+import { useDatasets } from '../lib/api-hooks';
+import { fetchCells } from '../lib/api';
 import { LayerList } from '../components/LayerList';
 import { ToolboxPanel } from '../components/ToolboxPanel';
 
@@ -20,10 +22,12 @@ const INITIAL_VIEW_STATE = {
 
 const BASEMAP_STYLE = 'https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json';
 
+// Create explicit MapView for proper geographic coordinate interpretation
+const DECK_VIEW = new DeckMapView({ id: 'main-map', repeat: true });
+
 export default function Workbench() {
     const { layers, addLayer } = useAppStore();
     const { data: datasets = [] } = useDatasets();
-    const analyticsQuery = useAnalyticsQuery();
 
     const [isSidebarOpen, setIsSidebarOpen] = useState(true);
     const [layerPolygons, setLayerPolygons] = useState<Record<string, { polygon: number[][]; dggid: string }[]>>({});
@@ -34,11 +38,15 @@ export default function Workbench() {
             const next: Record<string, { polygon: number[][]; dggid: string }[]> = {};
             for (const layer of layers) {
                 if (!layer.visible) continue;
-                const polygonMap = await resolveZonePolygons(layer.data, 3, { concurrency: 12 });
+                const polygonMap = await resolveZonePolygons(layer.data, 3, {
+                    concurrency: 12,
+                    dggsName: layer.dggsName
+                });
                 next[layer.id] = layer.data.flatMap((dggid: string) => {
                     const polygon = polygonMap.get(dggid);
                     return polygon ? [{ polygon, dggid }] : [];
                 });
+
             }
             if (active) {
                 setLayerPolygons(next);
@@ -63,29 +71,36 @@ export default function Workbench() {
                 stroked: true,
                 getLineColor: [0, 0, 0, 100] as [number, number, number, number],
                 lineWidthMinPixels: 1,
-                pickable: true
+                pickable: true,
+                // Explicitly set coordinate system to interpret [lon, lat] as geographic degrees
+                coordinateSystem: COORDINATE_SYSTEM.LNGLAT,
             });
         }).filter(Boolean);
     }, [layers, layerPolygons]);
 
-    const loadDemoLayer = (datasetId: string, name: string) => {
-        analyticsQuery.mutate({
-            operation: "intersection",
-            dataset_ids: [datasetId, datasetId],
-            viewport_dggids: undefined
-        }, {
-            onSuccess: (data: any) => {
-                addLayer({
-                    id: `demo-${datasetId}-${Date.now()}`,
-                    name: name,
-                    type: 'dggs',
-                    data: data.dggids ?? [],
-                    visible: true,
-                    opacity: 0.5,
-                    color: [0, 255, 0]
-                });
-            }
-        });
+    const loadDemoLayer = async (datasetId: string, name: string, attrKey?: string, dggsName?: string) => {
+        try {
+            const result = await fetchCells(datasetId, {
+                key: attrKey,
+                limit: '5000'
+            });
+            const cells = result.cells ?? [];
+            const dggids = cells.map((cell: { dggid: string }) => cell.dggid);
+            addLayer({
+                id: `demo-${datasetId}-${Date.now()}`,
+                name: name,
+                type: 'dggs',
+                data: dggids,
+                visible: true,
+                opacity: 0.5,
+                color: [0, 255, 0],
+                datasetId,
+                attrKey,
+                dggsName
+            });
+        } catch {
+            // Intentionally silent for now; UI already shows empty state when datasets are missing.
+        }
     };
 
     return (
@@ -109,7 +124,7 @@ export default function Workbench() {
                                     {datasets.map((ds: any) => (
                                         <button
                                             key={ds.id}
-                                            onClick={() => loadDemoLayer(ds.id, ds.name)}
+                                            onClick={() => loadDemoLayer(ds.id, ds.name, ds.metadata?.attr_key, ds.dggs_name)}
                                             className="dataset-item"
                                         >
                                             <span className="dataset-item__name">{ds.name}</span>
@@ -144,6 +159,7 @@ export default function Workbench() {
                             initialViewState={INITIAL_VIEW_STATE}
                             controller={true}
                             layers={deckLayers}
+                            views={DECK_VIEW}
                             getTooltip={({ object }) => object && `${(object as any).dggid ?? object}`}
                         >
                             <Map mapStyle={BASEMAP_STYLE} reuseMaps />

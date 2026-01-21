@@ -50,15 +50,23 @@ export const LayerList = () => {
 
                         <div
                             className="layer-item__color"
-                            style={{ backgroundColor: `rgb(${layer.color.join(',')})` }}
-                            onClick={() => {
-                                // Simple random color cycle
-                                const r = Math.floor(Math.random() * 255);
-                                const g = Math.floor(Math.random() * 255);
-                                const b = Math.floor(Math.random() * 255);
-                                updateLayer(layer.id, { color: [r, g, b] });
+                            style={{
+                                background: layer.color
+                                    ? `rgb(${layer.color.join(',')})`
+                                    : 'linear-gradient(135deg, #440154, #21918c, #fde725)'  // Viridis gradient
                             }}
-                            title="Click to change color"
+                            onClick={() => {
+                                // Toggle between value-based (undefined) and solid color
+                                if (layer.color) {
+                                    updateLayer(layer.id, { color: undefined });
+                                } else {
+                                    const r = Math.floor(Math.random() * 255);
+                                    const g = Math.floor(Math.random() * 255);
+                                    const b = Math.floor(Math.random() * 255);
+                                    updateLayer(layer.id, { color: [r, g, b] });
+                                }
+                            }}
+                            title={layer.color ? "Click for value-based coloring" : "Value-based coloring (click for solid)"}
                         />
                     </div>
                 </div>

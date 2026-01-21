@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { TOOLS, CATEGORY_META, getToolsByCategory, searchTools, type ToolConfig, type ToolCategory } from '../lib/toolRegistry';
 
 interface ToolPaletteProps {
@@ -7,18 +7,25 @@ interface ToolPaletteProps {
 
 export const ToolPalette: React.FC<ToolPaletteProps> = ({ onSelectTool }) => {
     const [searchQuery, setSearchQuery] = useState('');
+    const [debouncedQuery, setDebouncedQuery] = useState('');
     const [expandedCategories, setExpandedCategories] = useState<Set<ToolCategory>>(
         new Set(['geometry', 'overlay'])
     );
 
     const categories: ToolCategory[] = ['geometry', 'overlay', 'proximity', 'statistics', 'data'];
 
+    // Debounce search query (200ms)
+    useEffect(() => {
+        const timer = setTimeout(() => setDebouncedQuery(searchQuery), 200);
+        return () => clearTimeout(timer);
+    }, [searchQuery]);
+
     const filteredTools = useMemo(() => {
-        if (searchQuery.trim()) {
-            return searchTools(searchQuery);
+        if (debouncedQuery.trim()) {
+            return searchTools(debouncedQuery);
         }
         return null;
-    }, [searchQuery]);
+    }, [debouncedQuery]);
 
     const toggleCategory = (cat: ToolCategory) => {
         setExpandedCategories(prev => {

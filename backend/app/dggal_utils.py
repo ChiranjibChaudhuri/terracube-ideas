@@ -99,5 +99,5 @@ class DggalService:
             return {"lat": float(centroid.lat), "lon": float(centroid.lon)}
 
 @lru_cache
-def get_dggal_service() -> DggalService:
-    return DggalService("IVEA3H")
+def get_dggal_service(system_name: str = "IVEA3H") -> DggalService:
+    return DggalService(system_name)

@@ -24,6 +24,7 @@ export const ToolModal: React.FC<ToolModalProps> = ({ tool, onClose, onExecute }
     const [isRunning, setIsRunning] = useState(false);
     const [result, setResult] = useState<any>(null);
     const [error, setError] = useState<string | null>(null);
+    const canRun = Boolean(tool.apiEndpoint);
 
     const handleChange = (name: string, value: any) => {
         setParams(prev => ({ ...prev, [name]: value }));
@@ -140,6 +141,9 @@ export const ToolModal: React.FC<ToolModalProps> = ({ tool, onClose, onExecute }
                         {result.message}
                     </div>
                 )}
+                {!canRun && (
+                    <div className="tool-modal__error">This tool is not available in the current backend.</div>
+                )}
 
                 <div className="tool-modal__actions">
                     <button className="tool-modal__cancel" onClick={onClose}>
@@ -148,7 +152,7 @@ export const ToolModal: React.FC<ToolModalProps> = ({ tool, onClose, onExecute }
                     <button
                         className="tool-modal__run"
                         onClick={handleRun}
-                        disabled={isRunning}
+                        disabled={isRunning || !canRun}
                     >
                         {isRunning ? 'Running...' : 'Run Tool'}
                     </button>

@@ -43,6 +43,9 @@ CREATE TABLE IF NOT EXISTS cell_objects (
   UNIQUE (dataset_id, dggid, tid, attr_key)
 ) PARTITION BY LIST (dataset_id);
 
+-- Default partition for datasets without explicit partition (required for inserts to work)
+CREATE TABLE IF NOT EXISTS cell_objects_default PARTITION OF cell_objects DEFAULT;
+
 CREATE INDEX IF NOT EXISTS idx_cell_objects_dataset_id ON cell_objects (dataset_id);
 CREATE INDEX IF NOT EXISTS idx_cell_objects_dataset_dggid ON cell_objects (dataset_id, dggid);
 CREATE INDEX IF NOT EXISTS idx_cell_objects_dggid ON cell_objects (dggid);

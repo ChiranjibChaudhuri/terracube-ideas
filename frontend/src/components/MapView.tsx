@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import DeckGL from '@deck.gl/react';
 import { PolygonLayer, GeoJsonLayer, SolidPolygonLayer, BitmapLayer } from '@deck.gl/layers';
-import { _GlobeView as GlobeView, WebMercatorViewport, type Layer, type MapViewState, type Color } from '@deck.gl/core';
+import { _GlobeView as GlobeView, WebMercatorViewport, COORDINATE_SYSTEM, type Layer, type MapViewState, type Color } from '@deck.gl/core';
 import Map from 'react-map-gl/maplibre';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import { fetchCellsByDggids, getChildren, getNeighbors, getParent } from '../lib/api';
@@ -44,10 +44,20 @@ type LevelClamp = {
   max?: number;
 };
 
+type LayerStyle = {
+  color?: [number, number, number];
+  opacity?: number;
+  visible?: boolean;
+  minValue?: number;
+  maxValue?: number;
+};
+
 type MapViewProps = {
   datasetId?: string | null;
   attributeKey?: string | null;
   tid?: number;
+  dggsName?: string | null;
+  layerStyle?: LayerStyle;
   mode: 'viewport' | 'operation';
   overrideCells?: CellRecord[];
   levelClamp?: LevelClamp;
@@ -59,20 +69,31 @@ type MapViewProps = {
   onZoomChange?: (zoom: number) => void;
 };
 
-const toColor = (value?: number | null): Color => {
+const toColor = (value: number | null | undefined, minVal = -10, maxVal = 10): Color => {
   if (value === null || value === undefined || Number.isNaN(value)) {
     return [243, 195, 79, 140] as Color;
   }
-  const clamped = Math.max(0, Math.min(1, (value + 10) / 20));
-  const r = 30 + Math.round(160 * clamped);
-  const g = 80 + Math.round(120 * (1 - clamped));
-  const b = 110 + Math.round(60 * (1 - clamped));
+  // Normalize value to 0-1 range based on min/max
+  const range = maxVal - minVal;
+  const clamped = range !== 0 ? Math.max(0, Math.min(1, (value - minVal) / range)) : 0.5;
+  // Viridis-inspired gradient: purple -> blue -> green -> yellow
+  const r = Math.round(68 + 172 * clamped);
+  const g = Math.round(1 + 169 * Math.sin(Math.PI * clamped));
+  const b = Math.round(84 + 120 * (1 - clamped));
   return [r, g, b, 170] as Color;
 };
 
 const clampLat = (lat: number) => Math.max(-85, Math.min(85, lat));
 
-const buildExtent = (viewState: MapViewState, width: number, height: number): GeoExtent => {
+const buildExtent = (viewState: MapViewState, width: number, height: number, useGlobe: boolean): GeoExtent => {
+  // For globe view, return full world extent since WebMercatorViewport doesn't work for 3D globe
+  if (useGlobe) {
+    return {
+      ll: { lat: -85, lon: -180 },
+      ur: { lat: 85, lon: 180 },
+    };
+  }
+
   const viewport = new WebMercatorViewport({
     width,
     height,
@@ -91,6 +112,8 @@ const MapView = ({
   datasetId,
   attributeKey,
   tid = 0,
+  dggsName,
+  layerStyle,
   mode,
   overrideCells = [],
   levelClamp,
@@ -167,7 +190,7 @@ const MapView = ({
     const currentRequest = ++requestId.current;
     onStats?.({ zoneCount: 0, cellCount: 0, status: 'Resolving viewport...' });
 
-    const extent = buildExtent(viewState, size.width, size.height);
+    const extent = buildExtent(viewState, size.width, size.height, useGlobe);
     const extentKey = [
       extent.ll.lat.toFixed(4),
       extent.ll.lon.toFixed(4),
@@ -184,12 +207,17 @@ const MapView = ({
     }
     lastViewportKey.current = extentKey;
 
+    // For globe view, limit resolution to avoid overwhelming the browser with too many zones
+    const effectiveMinLevel = useGlobe ? Math.max(levelClamp?.min ?? 0, 2) : levelClamp?.min;
+    const effectiveMaxLevel = useGlobe ? Math.min(levelClamp?.max ?? 5, 5) : levelClamp?.max;
+
     const { level, zoneIds } = await listZoneIdsForExtent(extent, size.width, size.height, {
-      maxZones: 2600,
-      minLevel: levelClamp?.min,
-      maxLevel: levelClamp?.max,
+      maxZones: useGlobe ? 1500 : 2600,
+      minLevel: effectiveMinLevel,
+      maxLevel: effectiveMaxLevel,
       levelOverride: levelOverride ?? undefined,
       relativeDepth,
+      dggsName: dggsName ?? undefined,
     });
 
     if (!zoneIds.length) {
@@ -234,6 +262,7 @@ const MapView = ({
     size.width,
     tid,
     viewState,
+    useGlobe,
   ]);
 
   useEffect(() => {
@@ -267,7 +296,7 @@ const MapView = ({
       const polygonMap = await resolveZonePolygons(
         activeCells.map((cell) => cell.dggid),
         3,
-        { concurrency: 16, signal: controller.signal }
+        { concurrency: 16, signal: controller.signal, dggsName: dggsName ?? undefined }
       );
       if (controller.signal.aborted) {
         return;
@@ -304,10 +333,10 @@ const MapView = ({
 
     try {
       const [level, neighborsResult, parentResult, childrenResult] = await Promise.all([
-        getZoneLevel(record.cell.dggid),
-        getNeighbors(record.cell.dggid),
-        getParent(record.cell.dggid),
-        getChildren(record.cell.dggid),
+        getZoneLevel(record.cell.dggid, dggsName ?? undefined),
+        getNeighbors(record.cell.dggid, dggsName ?? undefined),
+        getParent(record.cell.dggid, dggsName ?? undefined),
+        getChildren(record.cell.dggid, dggsName ?? undefined),
       ]);
 
       if (request !== selectionRequestId.current) {
@@ -327,7 +356,7 @@ const MapView = ({
       });
 
       const selectionIds = [record.cell.dggid, ...neighbors];
-      const selectionMap = await resolveZonePolygons(selectionIds, 3, { concurrency: 8 });
+      const selectionMap = await resolveZonePolygons(selectionIds, 3, { concurrency: 8, dggsName: dggsName ?? undefined });
       if (request !== selectionRequestId.current) {
         return;
       }
@@ -376,17 +405,27 @@ const MapView = ({
       );
     }
 
-    // DGGS cells layer
+    // DGGS cells layer - coordinateSystem defaults to LNGLAT which works for globe
+    const styleOpacity = layerStyle?.opacity ?? 1;
+    const dataToRender = layerStyle?.visible === false ? [] : polygons;
     layerList.push(
       new PolygonLayer<PolygonRecord>({
         id: 'dggs-polygons',
-        data: polygons,
+        data: dataToRender,
         getPolygon: (d) => d.polygon,
-        getFillColor: (d) => toColor(d.cell.value_num ?? null),
-        getLineColor: [255, 255, 255, 120],
+        getFillColor: (d) => {
+          if (layerStyle?.color) {
+            return [...layerStyle.color, Math.round((layerStyle.opacity ?? 0.6) * 255)] as Color;
+          }
+          // Use value-based coloring with dataset min/max
+          const base = toColor(d.cell.value_num, layerStyle?.minValue ?? -10, layerStyle?.maxValue ?? 10);
+          return [base[0], base[1], base[2], Math.round(base[3] * styleOpacity)] as Color;
+        },
+        getLineColor: [255, 255, 255, Math.round(120 * styleOpacity)],
         lineWidthMinPixels: 1,
         pickable: true,
         autoHighlight: true,
+        coordinateSystem: COORDINATE_SYSTEM.LNGLAT,
       }),
     );
 
@@ -400,12 +439,13 @@ const MapView = ({
           getLineColor: (d) => (d.role === 'selected' ? [255, 160, 40, 200] : [91, 200, 255, 140]),
           lineWidthMinPixels: 2,
           pickable: false,
+          coordinateSystem: COORDINATE_SYSTEM.LNGLAT,
         })
       );
     }
 
     return layerList;
-  }, [polygons, selectionPolygons, useGlobe]);
+  }, [polygons, selectionPolygons, useGlobe, layerStyle]);
 
   // Globe view configuration
   const views = useMemo(() => {
