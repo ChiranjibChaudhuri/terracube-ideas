@@ -98,6 +98,35 @@ class DggalService:
             centroid = self.dggrs.getZoneWGS84Centroid(zone)
             return {"lat": float(centroid.lat), "lon": float(centroid.lon)}
 
+    def get_zone_level(self, dggid: str) -> Optional[int]:
+        """Get the resolution level of a DGGS zone."""
+        with self._lock:
+            zone = self._zone_from_text(dggid)
+            if zone is None:
+                return None
+            return self.dggrs.getZoneLevel(zone)
+
+    def get_parent_at_level(self, dggid: str, target_level: int) -> Optional[str]:
+        """Get the ancestor of a zone at a specific level."""
+        with self._lock:
+            zone = self._zone_from_text(dggid)
+            if zone is None:
+                return None
+            current_level = self.dggrs.getZoneLevel(zone)
+            if current_level is None or current_level <= target_level:
+                return dggid  # Already at or above target level
+            
+            # Traverse up the hierarchy
+            current = zone
+            while current_level > target_level:
+                parents = self.dggrs.getZoneParents(current)
+                if not parents or parents.count == 0:
+                    return None
+                current = parents[0]
+                current_level = self.dggrs.getZoneLevel(current)
+            
+            return self.dggrs.getZoneTextID(current)
+
 @lru_cache
 def get_dggal_service(system_name: str = "IVEA3H") -> DggalService:
     return DggalService(system_name)

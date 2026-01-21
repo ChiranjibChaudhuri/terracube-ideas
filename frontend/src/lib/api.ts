@@ -170,6 +170,22 @@ export const getVertices = async (dggid: string, dggsName?: string) => {
   });
 };
 
+/**
+ * List zone IDs from backend to ensure consistency with stored data.
+ * This uses the same DGGAL library as data ingestion.
+ */
+export const listZonesFromBackend = async (
+  level: number,
+  bbox: [number, number, number, number],  // [min_lat, min_lon, max_lat, max_lon]
+  dggsName?: string,
+  maxZones?: number
+): Promise<{ level: number; zoneCount: number; zones: string[] }> => {
+  return apiFetch('/api/ops/list_zones', {
+    method: 'POST',
+    body: JSON.stringify({ level, bbox, dggsName, maxZones }),
+  });
+};
+
 export const uploadDataset = async (
   file: File,
   datasetName?: string,

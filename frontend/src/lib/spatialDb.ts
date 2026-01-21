@@ -10,17 +10,15 @@
 
 import * as duckdb from '@duckdb/duckdb-wasm';
 
-const DUCKDB_VERSION = '1.33.1-dev18.0';
-
-// DuckDB-WASM bundle configuration
-const DUCKDB_BUNDLES = {
+// Use stable version with proper CORS handling
+const DUCKDB_BUNDLES: duckdb.DuckDBBundles = {
     mvp: {
-        mainModule: `https://cdn.jsdelivr.net/npm/@duckdb/duckdb-wasm@${DUCKDB_VERSION}/dist/duckdb-mvp.wasm`,
-        mainWorker: `https://cdn.jsdelivr.net/npm/@duckdb/duckdb-wasm@${DUCKDB_VERSION}/dist/duckdb-browser-mvp.worker.js`,
+        mainModule: 'https://cdn.jsdelivr.net/npm/@duckdb/duckdb-wasm@1.29.0/dist/duckdb-mvp.wasm',
+        mainWorker: 'https://cdn.jsdelivr.net/npm/@duckdb/duckdb-wasm@1.29.0/dist/duckdb-browser-mvp.worker.js',
     },
     eh: {
-        mainModule: `https://cdn.jsdelivr.net/npm/@duckdb/duckdb-wasm@${DUCKDB_VERSION}/dist/duckdb-eh.wasm`,
-        mainWorker: `https://cdn.jsdelivr.net/npm/@duckdb/duckdb-wasm@${DUCKDB_VERSION}/dist/duckdb-browser-eh.worker.js`,
+        mainModule: 'https://cdn.jsdelivr.net/npm/@duckdb/duckdb-wasm@1.29.0/dist/duckdb-eh.wasm',
+        mainWorker: 'https://cdn.jsdelivr.net/npm/@duckdb/duckdb-wasm@1.29.0/dist/duckdb-browser-eh.worker.js',
     },
 };
 
@@ -33,6 +31,20 @@ let spatialLoaded = false;
 let initPromise: Promise<DuckDBConnection> | null = null;
 
 const sanitizeSqlLiteral = (value: string) => value.replace(/'/g, "''");
+
+/**
+ * Create a same-origin worker from a CDN script URL using blob URL
+ */
+async function createBlobWorker(workerUrl: string): Promise<Worker> {
+    const response = await fetch(workerUrl);
+    if (!response.ok) {
+        throw new Error(`Failed to fetch worker: ${response.statusText}`);
+    }
+    const workerScript = await response.text();
+    const blob = new Blob([workerScript], { type: 'application/javascript' });
+    const blobUrl = URL.createObjectURL(blob);
+    return new Worker(blobUrl, { type: 'classic' });
+}
 
 /**
  * Initialize DuckDB-WASM with spatial extension
@@ -52,8 +64,8 @@ export async function initSpatialDb(): Promise<DuckDBConnection> {
         // Select best bundle for this browser
         const bundle = await duckdb.selectBundle(DUCKDB_BUNDLES);
 
-        // Create worker
-        const worker = new Worker(bundle.mainWorker!);
+        // Create worker using blob URL to avoid CORS issues
+        const worker = await createBlobWorker(bundle.mainWorker!);
         const logger = new duckdb.ConsoleLogger();
 
         // Instantiate DuckDB
@@ -112,8 +124,12 @@ export async function storePolygon(
     const json = JSON.stringify(polygon);
 
     await conn.query(`
-    INSERT OR REPLACE INTO dggs_polygons (zone_id, refinement, polygon_wkt, polygon_json)
+    INSERT INTO dggs_polygons (zone_id, refinement, polygon_wkt, polygon_json)
     VALUES ('${sanitizeSqlLiteral(zoneId)}', ${refinement}, '${sanitizeSqlLiteral(wkt)}', '${sanitizeSqlLiteral(json)}')
+    ON CONFLICT (zone_id) DO UPDATE SET
+      refinement = EXCLUDED.refinement,
+      polygon_wkt = EXCLUDED.polygon_wkt,
+      polygon_json = EXCLUDED.polygon_json
   `);
 }
 
@@ -193,8 +209,12 @@ export async function storePolygons(
     for (let i = 0; i < values.length; i += 100) {
         const batch = values.slice(i, i + 100);
         await conn.query(`
-      INSERT OR REPLACE INTO dggs_polygons (zone_id, refinement, polygon_wkt, polygon_json)
+      INSERT INTO dggs_polygons (zone_id, refinement, polygon_wkt, polygon_json)
       VALUES ${batch.join(', ')}
+      ON CONFLICT (zone_id) DO UPDATE SET
+        refinement = EXCLUDED.refinement,
+        polygon_wkt = EXCLUDED.polygon_wkt,
+        polygon_json = EXCLUDED.polygon_json
     `);
     }
 }

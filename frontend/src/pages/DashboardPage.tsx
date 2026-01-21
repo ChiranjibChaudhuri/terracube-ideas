@@ -75,39 +75,27 @@ const DashboardPage = () => {
   const toggleSection = (section: keyof typeof sectionsOpen) => {
     setSectionsOpen(prev => ({ ...prev, [section]: !prev[section] }));
   };
-
   // Handle dataset search selection
   const handleDatasetSelect = useCallback(async (dataset: Dataset) => {
     setStatus('Loading dataset...');
     setIsLoading(true);
     try {
-      // Fetch cells from the dataset
-      const result = await fetchCells(dataset.id, {
-        key: dataset.metadata?.attr_key,
-        limit: '2000'
+      // Don't pre-fetch cells - let MapView load dynamically based on viewport
+      // This enables proper viewport-based and multi-resolution loading
+      addLayer({
+        id: `layer-${dataset.id}-${Date.now()}`,
+        name: dataset.name,
+        type: 'dggs',
+        data: [],  // Empty - MapView will load based on viewport
+        visible: true,
+        opacity: 0.6,
+        datasetId: dataset.id,
+        attrKey: dataset.metadata?.attr_key,
+        dggsName: dataset.dggs_name,
+        minValue: dataset.metadata?.min_value,
+        maxValue: dataset.metadata?.max_value,
       });
-      const cells = result.cells ?? [];
-
-      if (cells.length > 0) {
-        const dggids = cells.map((c: CellRecord) => c.dggid);
-        addLayer({
-          id: `layer-${dataset.id}-${Date.now()}`,
-          name: dataset.name,
-          type: 'dggs',
-          data: dggids,
-          visible: true,
-          opacity: 0.6,
-          // No default color - let MapView use value-based coloring from toColor()
-          datasetId: dataset.id,
-          attrKey: dataset.metadata?.attr_key,
-          dggsName: dataset.dggs_name,
-          minValue: dataset.metadata?.min_value,
-          maxValue: dataset.metadata?.max_value,
-        });
-        setStatus(`Loaded ${cells.length} cells from ${dataset.name}`);
-      } else {
-        setStatus('No cells found in dataset');
-      }
+      setStatus(`Layer "${dataset.name}" added - cells load on viewport`);
       setSelectedDataset(dataset);
       setRenderKey(dataset.metadata?.attr_key ?? '');
       if (dataset.metadata?.min_level) {

@@ -4,8 +4,8 @@ import { PolygonLayer, GeoJsonLayer, SolidPolygonLayer, BitmapLayer } from '@dec
 import { _GlobeView as GlobeView, WebMercatorViewport, COORDINATE_SYSTEM, type Layer, type MapViewState, type Color } from '@deck.gl/core';
 import Map from 'react-map-gl/maplibre';
 import 'maplibre-gl/dist/maplibre-gl.css';
-import { fetchCellsByDggids, getChildren, getNeighbors, getParent } from '../lib/api';
-import { getZoneLevel, listZoneIdsForExtent, resolveZonePolygons, type GeoExtent } from '../lib/dggal';
+import { fetchCellsByDggids, getChildren, getNeighbors, getParent, listZonesFromBackend } from '../lib/api';
+import { getZoneLevel, resolveZonePolygons, type GeoExtent } from '../lib/dggal';
 
 // Free basemap style - no API key required
 const BASEMAP_STYLE = 'https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json';
@@ -140,6 +140,7 @@ const MapView = ({
   const fetchAbort = useRef<AbortController | null>(null);
   const polygonAbort = useRef<AbortController | null>(null);
   const lastViewportKey = useRef<string>('');
+  const lastLevel = useRef<number>(0);
   const selectionRequestId = useRef(0);
   const [selectedCell, setSelectedCell] = useState<CellRecord | null>(null);
   const [selectionInfo, setSelectionInfo] = useState<{
@@ -208,17 +209,52 @@ const MapView = ({
     lastViewportKey.current = extentKey;
 
     // For globe view, limit resolution to avoid overwhelming the browser with too many zones
-    const effectiveMinLevel = useGlobe ? Math.max(levelClamp?.min ?? 0, 2) : levelClamp?.min;
-    const effectiveMaxLevel = useGlobe ? Math.min(levelClamp?.max ?? 5, 5) : levelClamp?.max;
+    const effectiveMinLevel = useGlobe ? Math.max(levelClamp?.min ?? 0, 1) : levelClamp?.min;
+    const effectiveMaxLevel = useGlobe ? Math.min(levelClamp?.max ?? 6, 4) : levelClamp?.max;
 
-    const { level, zoneIds } = await listZoneIdsForExtent(extent, size.width, size.height, {
-      maxZones: useGlobe ? 1500 : 2600,
-      minLevel: effectiveMinLevel,
-      maxLevel: effectiveMaxLevel,
-      levelOverride: levelOverride ?? undefined,
-      relativeDepth,
-      dggsName: dggsName ?? undefined,
-    });
+    // Calculate level based on zoom or use override
+    // Formula: level = floor(zoom/2) + 1
+    // Zoom 0-2 → L1, 3-4 → L2, 5-6 → L3, 7-8 → L4, 9-10 → L5, 11-12 → L6
+    let targetLevel = levelOverride ?? 1;
+    if (!levelOverride) {
+      const zoomLevel = viewState.zoom ?? 0;
+      targetLevel = Math.floor(zoomLevel / 2) + 1;
+    }
+    // Clamp to dataset limits
+    if (effectiveMinLevel !== undefined) targetLevel = Math.max(effectiveMinLevel, targetLevel);
+    if (effectiveMaxLevel !== undefined) targetLevel = Math.min(effectiveMaxLevel, targetLevel);
+
+    // Clear cells if level changed to prevent intersection/overlap of different resolutions during load
+    if (targetLevel !== lastLevel.current) {
+      setViewportCells([]);
+      lastLevel.current = targetLevel;
+    }
+
+    console.log(`[MapView] Zoom: ${viewState.zoom?.toFixed(2)}, Level: ${targetLevel}, Limits: ${effectiveMinLevel}-${effectiveMaxLevel}`);
+
+    // Use backend for zone enumeration to ensure consistency with stored data
+    const bboxArr: [number, number, number, number] = [
+      extent.ll.lat, extent.ll.lon, extent.ur.lat, extent.ur.lon
+    ];
+
+    let zoneIds: string[];
+    let level: number;
+    try {
+      const result = await listZonesFromBackend(
+        targetLevel,
+        bboxArr,
+        dggsName ?? undefined,
+        useGlobe ? 1500 : 2600
+      );
+      zoneIds = result.zones;
+      level = result.level;
+      console.log(`[MapView] Backend returned ${zoneIds.length} zones at level ${level}`);
+    } catch (err) {
+      console.error('[MapView] Failed to list zones from backend:', err);
+      setViewportCells([]);
+      onStats?.({ zoneCount: 0, cellCount: 0, status: 'Zone listing failed' });
+      return;
+    }
 
     if (!zoneIds.length) {
       setViewportCells([]);
