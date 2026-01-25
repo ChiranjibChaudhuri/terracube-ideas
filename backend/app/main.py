@@ -1,7 +1,10 @@
 from contextlib import asynccontextmanager
 import logging
-from fastapi import FastAPI
+from pathlib import Path
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
 from app.config import settings
 from app.init_db import init_db
 from app.seed import seed_admin
@@ -67,6 +70,35 @@ async def health_check():
     except Exception as e:
         from fastapi.responses import JSONResponse
         return JSONResponse(status_code=503, content={"status": "unhealthy", "error": str(e)})
+
+# Serve Frontend
+# Determine path to frontend/dist relative to this file
+# app/main.py -> app -> backend -> repo root -> frontend/dist
+BASE_DIR = Path(__file__).resolve().parent.parent.parent
+frontend_dist = BASE_DIR / "frontend" / "dist"
+
+if frontend_dist.exists():
+    # Mount assets and dggal directories for efficiency
+    if (frontend_dist / "assets").exists():
+        app.mount("/assets", StaticFiles(directory=frontend_dist / "assets"), name="assets")
+
+    if (frontend_dist / "dggal").exists():
+        app.mount("/dggal", StaticFiles(directory=frontend_dist / "dggal"), name="dggal")
+
+    @app.get("/{full_path:path}")
+    async def serve_spa(full_path: str):
+        # Allow API calls to pass through (and fail with 404 if not found)
+        # Also exclude metrics or docs if needed, but docs is /docs by default
+        if full_path.startswith("api") or full_path.startswith("metrics") or full_path.startswith("docs") or full_path.startswith("openapi.json"):
+             raise HTTPException(status_code=404, detail="Not Found")
+
+        # Check if a static file exists (e.g. favicon.svg, logo.svg)
+        file_path = frontend_dist / full_path
+        if file_path.is_file():
+            return FileResponse(file_path)
+
+        # Fallback to index.html for SPA routing
+        return FileResponse(frontend_dist / "index.html")
 
 if __name__ == "__main__":
     import uvicorn
