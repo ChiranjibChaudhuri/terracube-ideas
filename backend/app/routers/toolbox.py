@@ -17,6 +17,12 @@ class BufferRequest(BaseModel):
 
 class AggregateRequest(BaseModel):
     dggids: List[str]
+    levels: int = 1
+    dggsName: Optional[str] = None
+
+class ExpandRequest(BaseModel):
+    dggids: List[str]
+    iterations: int = 1
     dggsName: Optional[str] = None
 
 class MaskRequest(BaseModel):
@@ -36,7 +42,16 @@ async def buffer_op(request: BufferRequest, user: dict = Depends(get_current_use
 async def aggregate_op(request: AggregateRequest, user: dict = Depends(get_current_user)):
     engine = SpatialEngine(request.dggsName or "IVEA3H")
     try:
-        result = await engine.aggregate(request.dggids)
+        result = await engine.aggregate(request.dggids, request.levels)
+        return {"result_count": len(result), "dggids": result}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.post("/expand")
+async def expand_op(request: ExpandRequest, user: dict = Depends(get_current_user)):
+    engine = SpatialEngine(request.dggsName or "IVEA3H")
+    try:
+        result = await engine.expand(request.dggids, request.iterations)
         return {"result_count": len(result), "dggids": result}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

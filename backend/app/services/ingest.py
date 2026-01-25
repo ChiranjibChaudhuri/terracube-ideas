@@ -153,28 +153,61 @@ async def _process_upload_async(
                     # dgg bbox: S, W, N, E (per CLI -bbox option)
                     dgg_bbox = [bounds.bottom, bounds.left, bounds.top, bounds.right]
 
-                    target_level = max_level or min_level or 9
-                    logger.info(f"Listing zones for level {target_level} in bbox {dgg_bbox}")
+                    # Determine level range
+                    # If user provides range, use it. If only one provided, use it as both min/max.
+                    # If neither, default to level 9 (single level).
+                    if min_level is not None and max_level is not None:
+                        start_level = min_level
+                        end_level = max_level
+                    elif min_level is not None:
+                        start_level = min_level
+                        end_level = min_level
+                    elif max_level is not None:
+                        start_level = max_level
+                        end_level = max_level
+                    else:
+                        start_level = 9
+                        end_level = 9
 
-                    zones = service.list_zones_bbox(target_level, dgg_bbox)
+                    if start_level > end_level:
+                         start_level, end_level = end_level, start_level
 
-                    if zones:
-                        data = src.read(1)
-                        src_crs = src.crs
-                        nodata = src.nodata
-                        def to_dataset_coords(lon: float, lat: float):
-                            if not src_crs:
-                                return lon, lat
-                            if str(src_crs) in ("EPSG:4326", "OGC:CRS84"):
-                                return lon, lat
-                            xs, ys = transform_coords("EPSG:4326", src_crs, [lon], [lat])
-                            return xs[0], ys[0]
+                    logger.info(f"Ingesting raster for levels {start_level} to {end_level} in bbox {dgg_bbox}")
+
+                    data = src.read(1)
+                    src_crs = src.crs
+                    nodata = src.nodata
+
+                    def to_dataset_coords(lon: float, lat: float):
+                        if not src_crs:
+                            return lon, lat
+                        if str(src_crs) in ("EPSG:4326", "OGC:CRS84"):
+                            return lon, lat
+                        xs, ys = transform_coords("EPSG:4326", src_crs, [lon], [lat])
+                        return xs[0], ys[0]
+
+                    raster_key = attr_key or "elevation"
+                    total_cells = 0
+
+                    for level in range(start_level, end_level + 1):
+                        logger.info(f"Processing level {level}")
+                        zones = service.list_zones_bbox(level, dgg_bbox)
+                        if not zones:
+                            continue
+
                         batch = []
-                        raster_key = attr_key or "elevation"
                         for zone_id in zones:
                             centroid = service.get_centroid(zone_id)
                             x, y = to_dataset_coords(centroid["lon"], centroid["lat"])
-                            row, col = src.index(x, y)
+
+                            # Check bounds before index to avoid potential errors
+                            if not (src.bounds.left <= x <= src.bounds.right and src.bounds.bottom <= y <= src.bounds.top):
+                                continue
+
+                            try:
+                                row, col = src.index(x, y)
+                            except Exception:
+                                continue
 
                             if 0 <= row < src.height and 0 <= col < src.width:
                                 val = data[row, col]
@@ -190,22 +223,24 @@ async def _process_upload_async(
 
                         if batch:
                             await _insert_cells(conn, str(dataset_uuid), batch)
-                            logger.info(f"Ingested {len(batch)} points for {dataset_uuid}")
-                    else:
-                        logger.warning("No zones found in bbox.")
+                            total_cells += len(batch)
+                            logger.info(f"Ingested {len(batch)} points for level {level}")
+
+                    if total_cells == 0:
+                        logger.warning("No zones found or no valid data sampled in bbox.")
 
                 await _update_dataset_metadata(
                     conn,
                     str(dataset_uuid),
                     {
-                        "min_level": min_level or target_level,
-                        "max_level": max_level or target_level,
+                        "min_level": start_level,
+                        "max_level": end_level,
                         "attr_key": attr_key or "elevation",
                         "source_type": source_type or "raster",
                     },
                 )
-                resolved_min = min_level or target_level
-                resolved_max = max_level or target_level
+                resolved_min = start_level
+                resolved_max = end_level
                 if resolved_min == resolved_max:
                     await conn.execute(
                         "UPDATE datasets SET level = $1 WHERE id = $2",
