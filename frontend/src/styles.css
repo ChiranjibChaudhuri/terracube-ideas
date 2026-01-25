@@ -1772,6 +1772,14 @@ button {
   background: linear-gradient(to right, #0d0887, #7201a8, #bd3786, #fb9f3a, #f0f921);
 }
 
+.color-ramp--magma {
+  background: linear-gradient(to right, #000004, #180f3d, #440f76, #721f81, #9e2f7f, #cd4071, #f1605d, #fd9668, #fcfdbf);
+}
+
+.color-ramp--inferno {
+  background: linear-gradient(to right, #000004, #1b0c41, #4a0c6b, #781c6d, #a52c60, #cf4446, #ed6925, #fb9b06, #fcffa4);
+}
+
 .color-ramp--temperature {
   background: linear-gradient(to right, #313695, #74add1, #fee090, #f46d43, #a50026);
 }

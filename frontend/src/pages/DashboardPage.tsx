@@ -217,6 +217,7 @@ const DashboardPage = () => {
                 visible: activeLayer.visible,
                 minValue: activeLayer.minValue ?? selectedDataset?.metadata?.min_value,
                 maxValue: activeLayer.maxValue ?? selectedDataset?.metadata?.max_value,
+                colorRamp: activeLayer.colorRamp,
               } : undefined}
               mode={mapMode}
               overrideCells={operationCells}
@@ -244,7 +245,7 @@ const DashboardPage = () => {
                   min={activeLayer?.minValue ?? selectedDataset?.metadata?.min_value ?? -10}
                   max={activeLayer?.maxValue ?? selectedDataset?.metadata?.max_value ?? 10}
                   unit={selectedDataset?.metadata?.attr_key === 'temp_celsius' ? '°C' : ''}
-                  colorRamp="viridis"
+                  colorRamp={activeLayer?.colorRamp ?? "viridis"}
                 />
               </div>
             )}
