@@ -166,8 +166,9 @@ async def _process_upload_async(
                         start_level = max_level
                         end_level = max_level
                     else:
-                        start_level = 9
-                        end_level = 9
+                        # Default to multi-resolution if not specified
+                        start_level = 1
+                        end_level = 10
 
                     if start_level > end_level:
                          start_level, end_level = end_level, start_level
