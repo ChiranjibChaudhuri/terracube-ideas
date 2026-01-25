@@ -4,6 +4,19 @@ import { PolygonLayer, GeoJsonLayer, SolidPolygonLayer, BitmapLayer } from '@dec
 import { _GlobeView as GlobeView, WebMercatorViewport, COORDINATE_SYSTEM, type Layer, type MapViewState, type Color } from '@deck.gl/core';
 import Map from 'react-map-gl/maplibre';
 import 'maplibre-gl/dist/maplibre-gl.css';
+import { scaleSequential } from 'd3-scale';
+import {
+  interpolateViridis,
+  interpolatePlasma,
+  interpolateMagma,
+  interpolateInferno,
+  interpolateWarm,
+  interpolateCool,
+  interpolateBlues,
+  interpolateRdBu,
+  interpolateSpectral
+} from 'd3-scale-chromatic';
+import { rgb } from 'd3-color';
 import { fetchCellsByDggids, getChildren, getNeighbors, getParent, listZonesFromBackend } from '../lib/api';
 import { getZoneLevel, resolveZonePolygons, type GeoExtent } from '../lib/dggal';
 
@@ -50,6 +63,7 @@ type LayerStyle = {
   visible?: boolean;
   minValue?: number;
   maxValue?: number;
+  colorRamp?: string;
 };
 
 type MapViewProps = {
@@ -69,18 +83,18 @@ type MapViewProps = {
   onZoomChange?: (zoom: number) => void;
 };
 
-const toColor = (value: number | null | undefined, minVal = -10, maxVal = 10): Color => {
-  if (value === null || value === undefined || Number.isNaN(value)) {
-    return [243, 195, 79, 140] as Color;
+const getInterpolator = (rampName?: string) => {
+  switch (rampName) {
+    case 'plasma': return interpolatePlasma;
+    case 'magma': return interpolateMagma;
+    case 'inferno': return interpolateInferno;
+    case 'temperature': return interpolateRdBu; // Red-Blue divergence for temperature
+    case 'elevation': return interpolateSpectral; // Spectral often used for topography
+    case 'bathymetry': return interpolateBlues; // Blues for water depth
+    case 'viridis':
+    default:
+      return interpolateViridis;
   }
-  // Normalize value to 0-1 range based on min/max
-  const range = maxVal - minVal;
-  const clamped = range !== 0 ? Math.max(0, Math.min(1, (value - minVal) / range)) : 0.5;
-  // Viridis-inspired gradient: purple -> blue -> green -> yellow
-  const r = Math.round(68 + 172 * clamped);
-  const g = Math.round(1 + 169 * Math.sin(Math.PI * clamped));
-  const b = Math.round(84 + 120 * (1 - clamped));
-  return [r, g, b, 170] as Color;
 };
 
 const clampLat = (lat: number) => Math.max(-85, Math.min(85, lat));
@@ -213,8 +227,8 @@ const MapView = ({
     const effectiveMaxLevel = useGlobe ? Math.min(levelClamp?.max ?? 6, 4) : levelClamp?.max;
 
     // Calculate level based on zoom or use override
-    // Formula: level = floor(zoom/2) + 1
-    // Zoom 0-2 → L1, 3-4 → L2, 5-6 → L3, 7-8 → L4, 9-10 → L5, 11-12 → L6
+    // Formula: level = floor(zoom/2) + 1 (user requested parity with modern GIS)
+    // Zoom 0-1.99 → L1, 2-3.99 → L2, 4-5.99 → L3, 6-7.99 → L4, 8-9.99 → L5, 10-11.99 → L6
     let targetLevel = levelOverride ?? 1;
     if (!levelOverride) {
       const zoomLevel = viewState.zoom ?? 0;
@@ -225,7 +239,9 @@ const MapView = ({
     if (effectiveMaxLevel !== undefined) targetLevel = Math.min(effectiveMaxLevel, targetLevel);
 
     // Clear cells if level changed to prevent intersection/overlap of different resolutions during load
+    // Also explicitly force update even if extentKey didn't capture it (though extentKey includes level now)
     if (targetLevel !== lastLevel.current) {
+      console.log(`[MapView] Level change detected: ${lastLevel.current} -> ${targetLevel}. Clearing polygons.`);
       setViewportCells([]);
       setPolygons([]);
       lastLevel.current = targetLevel;
@@ -428,6 +444,15 @@ const MapView = ({
     }
   }, [onCoordinatesChange]);
 
+  // Memoize the color scale to avoid recreating it for every cell
+  const colorScale = useMemo(() => {
+    const rampName = layerStyle?.colorRamp ?? 'viridis';
+    const minVal = layerStyle?.minValue ?? -10;
+    const maxVal = layerStyle?.maxValue ?? 10;
+    const interpolator = getInterpolator(rampName);
+    return scaleSequential(interpolator).domain([minVal, maxVal]);
+  }, [layerStyle?.colorRamp, layerStyle?.minValue, layerStyle?.maxValue]);
+
   const layers = useMemo<Layer[]>(() => {
     const layerList: Layer[] = [];
 
@@ -455,10 +480,16 @@ const MapView = ({
             return [...layerStyle.color, Math.round((layerStyle.opacity ?? 0.6) * 255)] as Color;
           }
           // Use value-based coloring with dataset min/max
-          const base = toColor(d.cell.value_num, layerStyle?.minValue ?? -10, layerStyle?.maxValue ?? 10);
-          return [base[0], base[1], base[2], Math.round(base[3] * styleOpacity)] as Color;
+          const val = d.cell.value_num;
+          if (val === null || val === undefined || Number.isNaN(val)) {
+            return [200, 200, 200, 100] as Color; // Grey for missing data
+          }
+          const colorStr = colorScale(val);
+          const parsed = rgb(colorStr);
+          // Apply opacity to the result
+          return [parsed.r, parsed.g, parsed.b, Math.round(255 * styleOpacity)] as Color;
         },
-        getLineColor: [255, 255, 255, Math.round(120 * styleOpacity)],
+        getLineColor: [255, 255, 255, Math.round(80 * styleOpacity)],
         lineWidthMinPixels: 1,
         pickable: true,
         autoHighlight: true,

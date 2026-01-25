@@ -25,10 +25,18 @@ export const ToolboxPanel: React.FC = () => {
     // Get selected layer
     const selectedLayer = layers.find(l => l.id === selectedLayerId);
 
+    // Sync state when layer selection changes
+    React.useEffect(() => {
+        if (selectedLayer) {
+            setOpacity(selectedLayer.opacity);
+            setColorRamp(selectedLayer.colorRamp ?? 'viridis');
+        }
+    }, [selectedLayerId, selectedLayer]); // Re-run when selection or the layer itself changes (e.g. from other updates)
+
     // Apply style to selected layer
     const handleApplyStyle = () => {
         if (selectedLayerId) {
-            updateLayer(selectedLayerId, { opacity });
+            updateLayer(selectedLayerId, { opacity, colorRamp });
         }
     };
 
@@ -150,7 +158,7 @@ export const ToolboxPanel: React.FC = () => {
                                 <div className="toolbox-field">
                                     <label className="toolbox-label">Color Ramp</label>
                                     <div className="color-ramp-options">
-                                        {['viridis', 'plasma', 'temperature', 'elevation', 'bathymetry'].map(ramp => (
+                                        {['viridis', 'plasma', 'magma', 'inferno', 'temperature', 'elevation', 'bathymetry'].map(ramp => (
                                             <button
                                                 key={ramp}
                                                 className={`color-ramp-btn ${colorRamp === ramp ? 'active' : ''}`}

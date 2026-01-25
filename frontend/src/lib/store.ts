@@ -13,6 +13,7 @@ export interface LayerConfig {
     dggsName?: string;
     minValue?: number; // For color gradient range
     maxValue?: number; // For color gradient range
+    colorRamp?: string; // Optional - name of the color ramp (e.g. "viridis", "magma")
 }
 
 interface AppState {
