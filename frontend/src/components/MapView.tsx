@@ -241,7 +241,7 @@ const MapView = ({
     // Clear cells if level changed to prevent intersection/overlap of different resolutions during load
     // Also explicitly force update even if extentKey didn't capture it (though extentKey includes level now)
     if (targetLevel !== lastLevel.current) {
-      console.log(`[MapView] Level change detected: ${lastLevel.current} -> ${targetLevel}. Clearing polygons.`);
+      console.log(`[MapView] Level change detected: ${lastLevel.current} -> ${targetLevel}. Clearing polygons to ensure clean multi-resolution transition.`);
       setViewportCells([]);
       setPolygons([]);
       lastLevel.current = targetLevel;
