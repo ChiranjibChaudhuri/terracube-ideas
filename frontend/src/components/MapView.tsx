@@ -227,6 +227,7 @@ const MapView = ({
     // Clear cells if level changed to prevent intersection/overlap of different resolutions during load
     if (targetLevel !== lastLevel.current) {
       setViewportCells([]);
+      setPolygons([]);
       lastLevel.current = targetLevel;
     }
 

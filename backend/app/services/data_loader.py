@@ -198,14 +198,18 @@ async def create_vector_dataset(
         partition_table = f"cell_objects_{str(dataset.id).replace('-', '_')}"
         
         # Insert with weighted random class assignment
-        values = []
+        records = []
         for cid in cells:
             class_val = random.choices(class_values, weights=class_weights, k=1)[0]
-            # Escape single quotes in class values
-            safe_val = class_val.replace("'", "''")
-            values.append(f"('{dataset.id}', '{cid}', 0, '{attr_key}', '{safe_val}')")
+            records.append({
+                "dataset_id": str(dataset.id),
+                "dggid": cid,
+                "tid": 0,
+                "attr_key": attr_key,
+                "value": class_val
+            })
 
-        await bulk_insert(session, partition_table, values, is_text=True)
+        await bulk_insert(session, partition_table, records, is_text=True)
         logger.info(f"Loaded {len(cells)} cells into '{name}'")
 
     except Exception as e:
@@ -263,15 +267,22 @@ async def create_raster_dataset(
 
         partition_table = f"cell_objects_{str(dataset.id).replace('-', '_')}"
         
-        values = []
+        records = []
         for i, cid in enumerate(cells):
             if apply_geographic_pattern:
                 value = generate_patterned_value(i, len(cells), min_val, max_val, pattern_type)
             else:
                 value = round(random.uniform(min_val, max_val), 2)
-            values.append(f"('{dataset.id}', '{cid}', 0, '{attr_key}', {value})")
 
-        await bulk_insert(session, partition_table, values, is_text=False)
+            records.append({
+                "dataset_id": str(dataset.id),
+                "dggid": cid,
+                "tid": 0,
+                "attr_key": attr_key,
+                "value": value
+            })
+
+        await bulk_insert(session, partition_table, records, is_text=False)
         logger.info(f"Loaded {len(cells)} cells into '{name}'")
 
     except Exception as e:
@@ -313,20 +324,23 @@ def generate_patterned_value(index: int, total: int, min_val: float, max_val: fl
         return round(random.uniform(min_val, max_val), 2)
 
 
-async def bulk_insert(session: AsyncSession, partition_table: str, values: list, is_text: bool):
-    """Perform chunked bulk insert into partition table."""
-    if not values:
+async def bulk_insert(session: AsyncSession, partition_table: str, records: list, is_text: bool):
+    """Perform chunked bulk insert into partition table using parameterized queries."""
+    if not records:
         return
     
-    chunk_size = 500
+    chunk_size = 1000
     value_col = "value_text" if is_text else "value_num"
     
-    for i in range(0, len(values), chunk_size):
-        chunk = values[i:i + chunk_size]
-        sql = f"""
-            INSERT INTO "{partition_table}" (dataset_id, dggid, tid, attr_key, {value_col})
-            VALUES {",".join(chunk)}
-        """
-        await session.execute(text(sql))
+    # We construct the SQL statement once, with placeholders
+    # Note: partition_table is derived from UUID so it is safe, but we quote it anyway
+    sql = text(f"""
+        INSERT INTO "{partition_table}" (dataset_id, dggid, tid, attr_key, {value_col})
+        VALUES (:dataset_id, :dggid, :tid, :attr_key, :value)
+    """)
+
+    for i in range(0, len(records), chunk_size):
+        chunk = records[i:i + chunk_size]
+        await session.execute(sql, chunk)
     
     await session.commit()
