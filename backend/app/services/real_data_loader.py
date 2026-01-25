@@ -35,69 +35,9 @@ NE_LAND = "https://raw.githubusercontent.com/nvkelso/natural-earth-vector/master
 # Each level covers 2 zoom levels: zoom 1-2 → L1, zoom 3-4 → L2, etc.
 LEVEL_MIN = 1   # Global overview (zoom 1-2)
 LEVEL_MAX = 6   # Region view (zoom 11-12)
+LEVEL_MEDIUM = 5 # Country view
 LEVEL_FINE = 7  # Cities, Population density (optional finest)
 HIERARCHY_LEVELS = list(range(LEVEL_MIN, LEVEL_MAX + 1))  # Levels 1-6
-
-
-def generate_parent_levels(
-    dgg,
-    base_values: List[tuple],  # List of (dggid, value_num, value_text, value_json)
-    base_level: int,
-    target_levels: List[int],
-    aggregation: str = "mean"  # mean, sum, first, max, min
-) -> Dict[int, List[tuple]]:
-    """
-    Generate parent-level aggregates from base-level cells.
-    Like COG overviews, creates coarser resolution versions.
-    
-    Returns dict mapping level -> list of (dggid, value_num, value_text, value_json)
-    """
-    result = {base_level: base_values}
-    
-    # Only generate levels coarser than base
-    parent_levels = sorted([l for l in target_levels if l < base_level], reverse=True)
-    
-    for target_level in parent_levels:
-        parent_data: Dict[str, List] = {}  # parent_dggid -> list of child values
-        
-        # Use previous level's data as source
-        source_level = max(l for l in result.keys() if l > target_level)
-        source_data = result[source_level]
-        
-        for dggid, val_num, val_text, val_json in source_data:
-            parent_id = dgg.get_parent_at_level(dggid, target_level)
-            if parent_id:
-                if parent_id not in parent_data:
-                    parent_data[parent_id] = []
-                parent_data[parent_id].append((val_num, val_text, val_json))
-        
-        # Aggregate child values into parent
-        aggregated = []
-        for parent_id, children in parent_data.items():
-            nums = [c[0] for c in children if c[0] is not None]
-            texts = [c[1] for c in children if c[1] is not None]
-            jsons = [c[2] for c in children if c[2] is not None]
-            
-            if aggregation == "mean" and nums:
-                agg_num = sum(nums) / len(nums)
-            elif aggregation == "sum" and nums:
-                agg_num = sum(nums)
-            elif aggregation == "max" and nums:
-                agg_num = max(nums)
-            elif aggregation == "min" and nums:
-                agg_num = min(nums)
-            else:
-                agg_num = nums[0] if nums else None
-            
-            agg_text = texts[0] if texts else None
-            agg_json = jsons[0] if jsons else None
-            
-            aggregated.append((parent_id, agg_num, agg_text, agg_json))
-        
-        result[target_level] = aggregated
-        logger.info(f"Generated {len(aggregated)} cells at level {target_level}")
-    
-    return result
 
 
 async def fetch_geojson(url: str) -> Optional[Dict]:
@@ -233,14 +173,45 @@ async def load_cities(session, repo, dgg, admin_id):
 
 
 async def load_land_ocean(session, repo, dgg, admin_id):
-    """Land vs Ocean classification with hierarchical multi-level storage (like COG)."""
+    """Land vs Ocean classification with hierarchical multi-level storage."""
     name = "Land and Ocean"
-    if await dataset_exists(session, name):
-        return
 
+    # Pre-fetch GeoJSON to ensure availability
     geojson = await fetch_geojson(NE_LAND)
     if not geojson:
+        logger.error(f"Failed to download {NE_LAND}. Skipping '{name}'.")
         return
+
+    # Check if dataset exists and needs reloading
+    result = await session.execute(text("SELECT id FROM datasets WHERE name = :n"), {"n": name})
+    existing_id = result.scalar()
+
+    if existing_id:
+        # Check if it has Level 1 data (indication of multi-resolution)
+        # We query for existence of any cells at Level 1.
+        # Since we can't easily query by level in DB without decoding DGGID, we rely on checking if *any* Level 1 cells exist.
+        # But we don't store level explicitly.
+        # Strategy: list a few Level 1 zones and check if they exist in the dataset.
+
+        l1_zones = await asyncio.to_thread(dgg.list_zones_bbox, LEVEL_MIN, [-85, -180, 85, 180])
+        # Take a sample of 10 zones
+        sample_zones = l1_zones[:10]
+
+        placeholders = ",".join([f"'{z}'" for z in sample_zones])
+        # We need to format safely, but here zones are alphanumeric safe strings from dggal
+
+        # Check if any of these exist
+        check_sql = f"SELECT 1 FROM cell_objects WHERE dataset_id = '{existing_id}' AND dggid IN ({placeholders}) LIMIT 1"
+        found = await session.execute(text(check_sql))
+
+        if found.scalar():
+            # Level 1 data exists, assume dataset is healthy
+            logger.info(f"Dataset '{name}' seems healthy (Level 1 data found). Skipping.")
+            return
+        else:
+            logger.info(f"Dataset '{name}' exists but misses Level 1 data. Reloading...")
+            await session.execute(text("DELETE FROM datasets WHERE id = :id"), {"id": existing_id})
+            await session.commit()
 
     # Create dataset with multi-level metadata (levels 1-6)
     dataset = await repo.create(
@@ -264,48 +235,38 @@ async def load_land_ocean(session, repo, dgg, admin_id):
                 pass
     land_union = unary_union(land_geoms) if land_geoms else None
 
-    # Get global cells at finest level (LEVEL_MAX = 6)
     global_bbox = [-85, -180, 85, 180]
-    cells = await asyncio.to_thread(dgg.list_zones_bbox, LEVEL_MAX, global_bbox)
-    logger.info(f"Classifying {len(cells)} cells as land/ocean at level {LEVEL_MAX}...")
-
-    # Collect base level data as tuples
-    base_data = []
-    for i, cid in enumerate(cells):
-        try:
-            cent = await asyncio.to_thread(dgg.get_centroid, cid)
-            pt = Point(cent["lon"], cent["lat"])
-            surface = "land" if land_union and land_union.contains(pt) else "ocean"
-            # Store as land=1, ocean=0 for numeric aggregation
-            value_num = 1 if surface == "land" else 0
-            base_data.append((cid, value_num, surface, None))
-            
-            if i % 1000 == 0:
-                logger.info(f"Classified {i}/{len(cells)}...")
-        except:
-            continue
-
-    # Generate hierarchical parent levels (1-6 for smooth zoom)
-    logger.info(f"Generating hierarchical parent levels {HIERARCHY_LEVELS}...")
-    hierarchy = generate_parent_levels(
-        dgg, base_data, LEVEL_MAX, 
-        HIERARCHY_LEVELS, 
-        aggregation="mean"
-    )
-
-    # Insert all levels
     all_values = []
-    for level, level_data in hierarchy.items():
-        for dggid, val_num, val_text, val_json in level_data:
-            # For aggregated levels, classify as land if >50% land
-            if level < LEVEL_MAX and val_num is not None:
-                surface = "land" if val_num > 0.5 else "ocean"
-            else:
-                surface = val_text or ("land" if val_num and val_num > 0.5 else "ocean")
-            all_values.append(f"('{dataset.id}', '{dggid}', 0, 'surface', '{surface}', {val_num if val_num is not None else 'NULL'}, NULL)")
-        logger.info(f"Level {level}: {len(level_data)} cells")
 
-    await bulk_insert(session, dataset.id, all_values)
+    # Iterate all levels independently
+    for level in HIERARCHY_LEVELS:
+        logger.info(f"Generating level {level} for {name}...")
+        cells = await asyncio.to_thread(dgg.list_zones_bbox, level, global_bbox)
+
+        level_values = []
+        for i, cid in enumerate(cells):
+            try:
+                cent = await asyncio.to_thread(dgg.get_centroid, cid)
+                pt = Point(cent["lon"], cent["lat"])
+                surface = "land" if land_union and land_union.contains(pt) else "ocean"
+                value_num = 1 if surface == "land" else 0
+
+                level_values.append(f"('{dataset.id}', '{cid}', 0, 'surface', '{surface}', {value_num}, NULL)")
+
+                if len(level_values) >= 2000:
+                    await bulk_insert(session, dataset.id, level_values)
+                    all_values.extend(level_values)
+                    level_values = []
+
+            except Exception as e:
+                continue
+
+        if level_values:
+            await bulk_insert(session, dataset.id, level_values)
+            all_values.extend(level_values)
+            
+        logger.info(f"Level {level} complete: {len(cells)} cells.")
+
     await finalize_dataset(session, dataset.id, len(all_values), name)
 
 
