@@ -23,8 +23,13 @@
 - No formatter or linter configured; match existing style in touched files.
 
 ## Testing Guidelines
-- No automated test framework is configured yet.
-- If you introduce tests, add npm scripts and note locations in this file and `README.md` (suggest `backend/tests` and/or `frontend/src/**/__tests__`).
+- **Backend**: Uses `pytest` with `pytest-asyncio` for async DB tests.
+  - Run tests: `pytest backend/tests`
+  - Integration tests: `test_toolbox_integration.py` (API flows), `test_spatial_ops_db.py` (DB persistence), `test_multi_res_loader.py` (Data loading).
+- **Frontend**: Uses `vitest` with `@testing-library/react` and `jsdom`.
+  - Run tests: `cd frontend && npm test`
+  - Unit tests: located in `frontend/src/__tests__/` (e.g. `MapView.test.tsx`).
+- **Docker**: `docker-compose build` is verified working for containerization.
 
 ## Commit & Pull Request Guidelines
 - No git history is present, so no established commit convention. Prefer short, imperative messages (e.g., “Add viewport DGGS lookup endpoint”).

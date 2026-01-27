@@ -23,7 +23,7 @@ class QueryRequest(BaseModel):
     limit: Optional[int] = 5000
 
 class SpatialRequest(BaseModel):
-    type: Literal["intersection", "zonal"]
+    type: Literal["intersection", "zonal", "union", "difference"]
     datasetAId: str
     datasetBId: str
     keyA: str
@@ -152,10 +152,10 @@ def _ranges_overlap(a: Optional[dict], b: Optional[dict]):
     return max(a["min"], b["min"]) <= min(a["max"], b["max"])
 
 @router.post("/spatial")
-async def run_spatial(request: SpatialRequest = Body(...), db: AsyncSession = Depends(get_db)):
+async def run_spatial(request: SpatialRequest = Body(...), db: AsyncSession = Depends(get_db), user: dict = Depends(get_current_user)):
     dataset_a = _parse_uuid(request.datasetAId, "datasetAId")
     dataset_b = _parse_uuid(request.datasetBId, "datasetBId")
-    limit = min(max(request.limit or 1, 1), 5000)
+    limit = min(max(request.limit or 1, 1), 50000) # Higher limit for persistence
 
     result = await db.execute(select(Dataset).where(Dataset.id.in_([dataset_a, dataset_b])))
     datasets = {str(ds.id): ds for ds in result.scalars().all()}
@@ -163,84 +163,85 @@ async def run_spatial(request: SpatialRequest = Body(...), db: AsyncSession = De
     if str(dataset_a) not in datasets or str(dataset_b) not in datasets:
         raise HTTPException(status_code=404, detail="Dataset not found")
 
-    if datasets[str(dataset_a)].dggs_name != datasets[str(dataset_b)].dggs_name:
+    ds_a = datasets[str(dataset_a)]
+    ds_b = datasets[str(dataset_b)]
+
+    if ds_a.dggs_name != ds_b.dggs_name:
         raise HTTPException(status_code=409, detail="DGGS mismatch between datasets.")
 
-    range_a = _range_from_metadata(datasets[str(dataset_a)].metadata_)
-    range_b = _range_from_metadata(datasets[str(dataset_b)].metadata_)
+    # Create new result dataset
+    new_id = uuid.uuid4()
+    op_name = request.type.capitalize()
+    new_dataset = Dataset(
+        id=new_id,
+        name=f"{op_name} Result",
+        description=f"{op_name} of {ds_a.name} and {ds_b.name}",
+        dggs_name=ds_a.dggs_name,
+        metadata_={"source": "spatial_op", "type": request.type, "parents": [str(dataset_a), str(dataset_b)]},
+        status="processing" # Will update to ready
+    )
+    db.add(new_dataset)
+    await db.commit() # Commit to get ID ready
 
-    if not _ranges_overlap(range_a, range_b):
-        raise HTTPException(
-            status_code=409,
-            detail="Resolution mismatch: datasets must have overlapping min/max DGGS levels.",
-        )
+    try:
+        if request.type == "intersection":
+            sql = text(
+                """
+                INSERT INTO cell_objects (dataset_id, dggid, tid, attr_key, value_num, value_text, value_json)
+                SELECT :new_id, a.dggid, a.tid, 'intersection', 
+                       CASE WHEN a.value_num IS NOT NULL AND b.value_num IS NOT NULL THEN (a.value_num + b.value_num)/2 ELSE COALESCE(a.value_num, b.value_num) END,
+                       'Intersection',
+                       jsonb_build_object('a', a.value_json, 'b', b.value_json)
+                FROM cell_objects a
+                JOIN cell_objects b ON a.dggid = b.dggid
+                WHERE a.dataset_id = :dataset_a AND b.dataset_id = :dataset_b
+                """
+            )
+            await db.execute(sql, {"new_id": new_id, "dataset_a": dataset_a, "dataset_b": dataset_b})
+        
+        elif request.type == "union":
+            # Union: Items in A OR B. 
+            # We insert A, then insert B (ignoring duplicates or handling them).
+            # Simple approach: A UNION B (distinct dggids)
+            # But we need values.
+            # Strategy: Insert A, then Insert B where not in A?
+            # Or just Insert all and let DB handle? cell_objects PK is (dataset_id, dggid, tid, attr_key)? No, usually just ID.
+            # Assuming we want unique cells.
+            
+            # Insert A
+            await db.execute(text("""
+                INSERT INTO cell_objects (dataset_id, dggid, tid, attr_key, value_num, value_text, value_json)
+                SELECT :new_id, dggid, tid, attr_key, value_num, value_text, value_json
+                FROM cell_objects WHERE dataset_id = :dataset_a
+            """), {"new_id": new_id, "dataset_a": dataset_a})
+            
+            # Insert B where not exists in A (spatial union, attribute preservation is tricky, we just take B's attributes for B-only cells, and ignore overlaps? Or overwrite?)
+            # Valid Union in GIS usually merges attributes.
+            # Simplest for now: Insert B where dggid not in (Select dggid from A)
+            await db.execute(text("""
+                INSERT INTO cell_objects (dataset_id, dggid, tid, attr_key, value_num, value_text, value_json)
+                SELECT :new_id, dggid, tid, attr_key, value_num, value_text, value_json
+                FROM cell_objects b
+                WHERE dataset_id = :dataset_b
+                AND NOT EXISTS (SELECT 1 FROM cell_objects a WHERE a.dataset_id = :dataset_a AND a.dggid = b.dggid)
+            """), {"new_id": new_id, "dataset_a": dataset_a, "dataset_b": dataset_b})
 
-    if request.type == "intersection":
-        key_b = request.keyB or request.keyA
-        clauses = [
-            "a.dataset_id = :dataset_a",
-            "b.dataset_id = :dataset_b",
-            "a.dggid = b.dggid",
-            "a.attr_key = :key_a",
-            "b.attr_key = :key_b",
-        ]
-        params = {
-            "dataset_a": dataset_a,
-            "dataset_b": dataset_b,
-            "key_a": request.keyA,
-            "key_b": key_b,
-            "limit": limit,
-        }
-        if request.tid is not None:
-            clauses.append("a.tid = :tid")
-            clauses.append("b.tid = :tid")
-            params["tid"] = request.tid
+        elif request.type == "difference":
+            # Difference: A - B (Cells in A that are NOT in B)
+            await db.execute(text("""
+                INSERT INTO cell_objects (dataset_id, dggid, tid, attr_key, value_num, value_text, value_json)
+                SELECT :new_id, a.dggid, a.tid, a.attr_key, a.value_num, a.value_text, a.value_json
+                FROM cell_objects a
+                LEFT JOIN cell_objects b ON a.dggid = b.dggid AND b.dataset_id = :dataset_b
+                WHERE a.dataset_id = :dataset_a AND b.dggid IS NULL
+            """), {"new_id": new_id, "dataset_a": dataset_a, "dataset_b": dataset_b})
 
-        sql = text(
-            f"""
-            SELECT a.dggid, a.value_num AS value_num, a.value_text AS value_text,
-                   b.value_num AS value_num_b, b.value_text AS value_text_b
-            FROM cell_objects a
-            JOIN cell_objects b ON a.dggid = b.dggid
-            WHERE {" AND ".join(clauses)}
-            LIMIT :limit
-            """
-        )
-        rows = await db.execute(sql, params)
-        return {"rows": [dict(row) for row in rows.mappings().all()], "operation": "intersection"}
+        # Update status
+        new_dataset.status = "ready"
+        await db.commit()
+        return {"status": "success", "newDatasetId": str(new_id)}
 
-    if request.type == "zonal":
-        key_b = request.keyB or request.keyA
-        clauses = [
-            "a.dataset_id = :dataset_a",
-            "b.dataset_id = :dataset_b",
-            "a.attr_key = :key_a",
-            "b.attr_key = :key_b",
-            "a.dggid = b.dggid",
-        ]
-        params = {
-            "dataset_a": dataset_a,
-            "dataset_b": dataset_b,
-            "key_a": request.keyA,
-            "key_b": key_b,
-            "limit": limit,
-        }
-        if request.tid is not None:
-            clauses.append("a.tid = :tid")
-            clauses.append("b.tid = :tid")
-            params["tid"] = request.tid
+    except Exception as e:
+        await db.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
 
-        sql = text(
-            f"""
-            SELECT b.dggid AS dggid, AVG(a.value_num) AS value
-            FROM cell_objects a
-            JOIN cell_objects b ON a.dggid = b.dggid
-            WHERE {" AND ".join(clauses)}
-            GROUP BY b.dggid
-            LIMIT :limit
-            """
-        )
-        rows = await db.execute(sql, params)
-        return {"rows": [dict(row) for row in rows.mappings().all()], "operation": "zonal"}
-
-    raise HTTPException(status_code=400, detail="Unsupported spatial operation type.")

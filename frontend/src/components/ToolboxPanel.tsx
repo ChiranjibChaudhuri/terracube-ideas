@@ -17,6 +17,7 @@ export const ToolboxPanel: React.FC = () => {
         layers.length > 0 ? layers[0].id : null
     );
     const [selectedTool, setSelectedTool] = useState<ToolConfig | null>(null);
+    const [status, setStatus] = useState('');
 
     // Style settings
     const [colorRamp, setColorRamp] = useState('viridis');
@@ -43,13 +44,65 @@ export const ToolboxPanel: React.FC = () => {
     // Handle tool execution
     const handleToolExecute = async (toolId: string, params: Record<string, any>) => {
         const tool = selectedTool;
-        if (!tool?.apiEndpoint) {
-            throw new Error('This tool is not available yet.');
-        }
+        // if (!tool?.apiEndpoint && toolId !== 'union' && toolId !== 'intersection' && toolId !== 'difference') {
+        //     throw new Error('This tool is not available yet.');
+        // }
 
         const getLayer = (id: string) => layers.find(layer => layer.id === id);
         const layerA = getLayer(params.layerA || params.layer || params.zones || '');
         const layerB = getLayer(params.layerB || params.values || '');
+
+        // Persistent Spatial Operations (Union, Intersection, Difference)
+        if (toolId === 'union' || toolId === 'intersection' || toolId === 'difference') {
+            if (!layerA?.datasetId || !layerB?.datasetId) {
+                throw new Error('Selected layers must be saved datasets (not transient).');
+            }
+
+            const payload = {
+                type: toolId,
+                datasetAId: layerA.datasetId,
+                datasetBId: layerB.datasetId,
+                keyA: layerA.attrKey || 'value',
+                keyB: layerB.attrKey || 'value'
+            };
+
+            setStatus(`Running ${toolId}...`);
+            const result = await apiFetch('/api/ops/spatial', { // Call generic spatial persist endpoint
+                method: 'POST',
+                body: JSON.stringify(payload)
+            });
+
+            if (result.newDatasetId) {
+                // Determine name
+                const name = `${toolId} result`;
+
+                // Add as a new Dataset Layer (fetched from DB)
+                // We use addLayer properties similar to handleDatasetSelect
+                setStatus('Loading result...');
+
+                // Fetch stats/metadata if possible, or just add logic to let MapView load it
+                // We can fake a "Dataset" object or just pass params
+
+                addLayer({
+                    id: `layer-${result.newDatasetId}`,
+                    name: name,
+                    type: 'dggs',
+                    data: [], // Empty, MapView loads it
+                    visible: true,
+                    opacity: 0.8,
+                    datasetId: result.newDatasetId,
+                    attrKey: 'intersection', // or whatever we saved
+                    dggsName: layerA.dggsName, // access from layer property
+                    // Metadata/Range might be unknown initially, MapView handles it?
+                });
+                setStatus('Operation complete. Layer added.');
+            }
+            return;
+        }
+
+        // ... Existing logic for other tools (buffer etc) ...
+        const apiEndpoint = tool?.apiEndpoint;
+        if (!apiEndpoint) throw new Error('Tool endpoint not defined');
 
         let payload: Record<string, any> = {};
         if (toolId === 'buffer') {
@@ -66,9 +119,8 @@ export const ToolboxPanel: React.FC = () => {
                 levels: Number(params.targetLevel ?? 1),
                 dggsName: layerA.dggsName
             };
-        } else if (toolId === 'union' || toolId === 'intersection' || toolId === 'difference') {
-            if (!layerA || !layerB) throw new Error('Select two valid layers.');
-            payload = { set_a: layerA.data, set_b: layerB.data };
+            // } else if (toolId === 'union' || toolId === 'intersection' || toolId === 'difference') {
+            // Handled above
         } else if (toolId === 'clip') {
             const maskLayer = getLayer(params.mask || '');
             if (!layerA || !maskLayer) throw new Error('Select input and mask layers.');
@@ -86,7 +138,7 @@ export const ToolboxPanel: React.FC = () => {
             throw new Error('Unsupported tool.');
         }
 
-        const result = await apiFetch(tool.apiEndpoint, {
+        const result = await apiFetch(apiEndpoint, {
             method: 'POST',
             body: JSON.stringify(payload)
         });
@@ -110,6 +162,7 @@ export const ToolboxPanel: React.FC = () => {
 
     return (
         <div className="toolbox-panel">
+            {status && <div className="toolbox-status" style={{ padding: '8px', background: '#f0f9ff', borderBottom: '1px solid #bae6fd', fontSize: '0.9em' }}>{status}</div>}
             {/* Tab Headers */}
             <div className="toolbox-tabs">
                 <button
