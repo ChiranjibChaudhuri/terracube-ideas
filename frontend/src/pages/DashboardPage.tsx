@@ -50,6 +50,7 @@ const DashboardPage = () => {
   const [renderTid, setRenderTid] = useState('0');
   const [levelMode, setLevelMode] = useState<'auto' | 'fixed'>('auto');
   const [fixedLevel, setFixedLevel] = useState(3);
+  const [levelOffset, setLevelOffset] = useState(3);
 
   const [operationCells, setOperationCells] = useState<CellRecord[]>([]);
 
@@ -64,6 +65,8 @@ const DashboardPage = () => {
   const [sectionsOpen, setSectionsOpen] = useState({
     layers: true,
     toolbox: true,
+    team: false,
+    billing: false,
     settings: false
   });
 
@@ -73,9 +76,9 @@ const DashboardPage = () => {
 
   const selectedMetadata: Record<string, any> = selectedDataset ? getDatasetMetadata(selectedDataset) : {};
   const levelMin = Number(selectedMetadata.min_level ?? 0);
-  const levelMax = Number(selectedMetadata.max_level ?? 12);
+  const levelMax = Number(selectedMetadata.max_level ?? 15);
   const clampedLevelMin = Number.isFinite(levelMin) ? levelMin : 0;
-  const clampedLevelMax = Number.isFinite(levelMax) ? levelMax : 12;
+  const clampedLevelMax = Number.isFinite(levelMax) ? levelMax : 15;
   const flatBasemap = FLAT_BASEMAPS.find((bm) => bm.id === flatBasemapId) ?? FLAT_BASEMAPS[0];
   const globeBasemap = GLOBE_BASEMAPS.find((bm) => bm.id === globeBasemapId) ?? GLOBE_BASEMAPS[0];
 
@@ -168,6 +171,50 @@ const DashboardPage = () => {
             )}
           </div>
 
+          {/* Team (collapsed by default) */}
+          <div className="section">
+            <div className="section-header" onClick={() => toggleSection('team')}>
+              <span className="section-title">Team</span>
+              <span className="section-toggle">{sectionsOpen.team ? '−' : '+'}</span>
+            </div>
+            {sectionsOpen.team && (
+              <div className="section-content">
+                <div className="toolbox">
+                  <div className="toolbox-field">
+                    <label className="toolbox-label">Invite Teammate</label>
+                    <div style={{ display: 'flex', gap: '0.5rem' }}>
+                      <input type="email" className="toolbox-input" placeholder="email@example.com" />
+                      <button className="button-primary" style={{ padding: '0.5rem 1rem' }} onClick={() => setStatus('Invite sent to teammate!')}>Send</button>
+                    </div>
+                  </div>
+                  <div className="toolbox-field">
+                    <label className="toolbox-label">Active Members</label>
+                    <div className="badge" style={{ marginBottom: '0.5rem' }}>Demo User (Admin)</div>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Billing (collapsed by default) */}
+          <div className="section">
+            <div className="section-header" onClick={() => toggleSection('billing')}>
+              <span className="section-title">Billing</span>
+              <span className="section-toggle">{sectionsOpen.billing ? '−' : '+'}</span>
+            </div>
+            {sectionsOpen.billing && (
+              <div className="section-content">
+                <div className="toolbox">
+                  <div className="toolbox-field">
+                    <label className="toolbox-label">Current Plan: Professional</label>
+                    <p style={{ fontSize: '0.8rem', opacity: 0.8 }}>Next billing date: Feb 28, 2026</p>
+                  </div>
+                  <button className="button-secondary" style={{ width: '100%' }} onClick={() => setStatus('Redirecting to stripe (Mock)...')}>Manage Subscription</button>
+                </div>
+              </div>
+            )}
+          </div>
+
           {/* Settings (collapsed by default) */}
           <div className="section">
             <div className="section-header" onClick={() => toggleSection('settings')}>
@@ -231,6 +278,22 @@ const DashboardPage = () => {
                       <option value="fixed">Fixed level</option>
                     </select>
                   </div>
+                  {levelMode === 'auto' && (
+                    <div className="toolbox-field">
+                      <label className="toolbox-label">
+                        Zoom Offset: {levelOffset >= 0 ? `+${levelOffset}` : levelOffset}
+                      </label>
+                      <input
+                        type="range"
+                        min={-3}
+                        max={6}
+                        step={1}
+                        value={levelOffset}
+                        onChange={(e) => setLevelOffset(Number(e.target.value))}
+                        className="toolbox-range"
+                      />
+                    </div>
+                  )}
                   {levelMode === 'fixed' && (
                     <div className="toolbox-field">
                       <label className="toolbox-label">Level: {fixedLevel}</label>
@@ -283,6 +346,7 @@ const DashboardPage = () => {
                 max: selectedMetadata.max_level,
               }}
               levelOverride={levelMode === 'fixed' ? fixedLevel : null}
+              levelOffset={levelOffset}
               onStats={setMapStats}
               useGlobe={useGlobe}
               onCoordinatesChange={setCoordinates}

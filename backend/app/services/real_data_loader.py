@@ -35,8 +35,46 @@ DATA_SOURCES = [
         "url": "https://raw.githubusercontent.com/johan/world.geo.json/master/countries/CAN.geo.json",
         "file": "CAN.geo.json",
         "dggs": "IVEA3H",
-        "min_lvl": 4, # Higher start level for regional data? Or just 1-10? Let's do 1-10.
-        "max_lvl": 10
+        "min_lvl": 1,
+        "max_lvl": 13
+    },
+    {
+        "name": "Dubai DEM (PlanetDEM 1s)",
+        "type": "raster",
+        "url": "https://demo.planetobserver.com/PlanetDEM_1s_Dubai.zip",
+        "file": "PlanetDEM_1s_Dubai.zip",
+        "target_tif": "PlanetDEM_1s_Dubai.tif",
+        "attr": "elevation_m",
+        "min_lvl": 1,
+        "max_lvl": 15
+    },
+    {
+        "name": "Kilimanjaro DEM (PlanetDEM 3s)",
+        "type": "raster",
+        "url": "https://demo.planetobserver.com/PlanetDEM_3s_Kilimandjaro.zip",
+        "file": "PlanetDEM_3s_Kilimandjaro.zip",
+        "target_tif": "PlanetDEM_3s_Kilimandjaro.tif",
+        "attr": "elevation_m",
+        "min_lvl": 1,
+        "max_lvl": 15
+    },
+    {
+        "name": "USGS DEM Sample (o41078a5)",
+        "type": "raster",
+        "url": "https://download.osgeo.org/geotiff/samples/usgs/o41078a5.tif",
+        "file": "o41078a5.tif",
+        "attr": "elevation_m",
+        "min_lvl": 1,
+        "max_lvl": 15
+    },
+    {
+        "name": "USGS DEM Sample (i30dem)",
+        "type": "raster",
+        "url": "https://download.osgeo.org/geotiff/samples/usgs/i30dem.tif",
+        "file": "i30dem.tif",
+        "attr": "elevation_m",
+        "min_lvl": 1,
+        "max_lvl": 15
     },
     {
         "name": "Global Elevation (ETOPO1)",
@@ -58,16 +96,7 @@ DATA_SOURCES = [
         "min_lvl": 1,
         "max_lvl": 10
     },
-    {
-        "name": "Canada Population Density 2020",
-        "type": "raster",
-        "url": "https://data.worldpop.org/GIS/Population/Global_2000_2020/2020/CAN/can_pd_2020_1km.tif",
-        "file": "can_pd_2020_1km.tif",
-        "target_tif": "can_pd_2020_1km.tif",
-        "attr": "pop_density",
-        "min_lvl": 4,
-        "max_lvl": 10
-    }
+    # Removed failing WorldPop source (404)
 ]
 
 
@@ -159,11 +188,15 @@ async def load_real_global_data(session: AsyncSession = None):
                         except:
                             meta = {}
                     meta = meta or {}
-                    current_max = meta.get('max_level', 0)
-                    target_max = ds['max_lvl']
-                    
-                    if current_max < target_max:
-                        logger.info(f"Dataset '{ds['name']}' ready but outdated level (Current: {current_max}, Target: {target_max}). Re-ingesting.")
+                    current_min = meta.get('min_level', 0) or 0
+                    current_max = meta.get('max_level', 0) or 0
+                    target_min = ds.get('min_lvl', 0) or 0
+                    target_max = ds.get('max_lvl', 0) or 0
+
+                    if current_min != target_min or current_max != target_max:
+                        logger.info(
+                            f"Dataset '{ds['name']}' ready but outdated level (Current: {current_min}-{current_max}, Target: {target_min}-{target_max}). Re-ingesting."
+                        )
                         needs_reingest = True
                         # Clean up old data for this dataset
                         table_name = f"cell_objects_{str(dataset_uuid).replace('-', '_')}"

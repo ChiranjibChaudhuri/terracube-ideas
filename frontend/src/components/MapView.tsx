@@ -80,6 +80,7 @@ type MapViewProps = {
   useGlobe?: boolean;
   basemapStyle?: string;
   globeTexture?: string;
+  levelOffset?: number;
   onStats?: (stats: MapStats) => void;
   onCoordinatesChange?: (coords: { lat: number; lng: number } | null) => void;
   onZoomChange?: (zoom: number) => void;
@@ -151,6 +152,7 @@ const MapView = ({
   useGlobe = false,
   basemapStyle,
   globeTexture,
+  levelOffset = 0,
   onStats,
   onCoordinatesChange,
   onZoomChange,
@@ -227,10 +229,10 @@ const MapView = ({
     let targetLevel = levelOverride ?? 1;
     if (!levelOverride) {
       const zoomLevel = viewState.zoom ?? 0;
-      targetLevel = Math.max(1, Math.floor(zoomLevel));
+      targetLevel = Math.max(1, Math.floor(zoomLevel + levelOffset));
     }
     const effectiveMinLevel = useGlobe ? Math.max(levelClamp?.min ?? 0, 1) : levelClamp?.min;
-    const effectiveMaxLevel = useGlobe ? Math.min(levelClamp?.max ?? 10, 10) : levelClamp?.max;
+    const effectiveMaxLevel = useGlobe ? Math.min(levelClamp?.max ?? 15, 15) : levelClamp?.max;
     if (effectiveMinLevel !== undefined) targetLevel = Math.max(effectiveMinLevel, targetLevel);
     if (effectiveMaxLevel !== undefined) targetLevel = Math.min(effectiveMaxLevel, targetLevel);
 
@@ -337,6 +339,7 @@ const MapView = ({
     datasetId,
     levelClamp?.max,
     levelClamp?.min,
+    levelOffset,
     levelOverride,
     mode,
     onStats,

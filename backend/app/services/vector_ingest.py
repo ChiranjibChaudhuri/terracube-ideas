@@ -89,7 +89,6 @@ async def ingest_vector_file(
     except Exception as e:
         logger.warning(f"Fiona ingest failed ({e}). Attempting JSON fallback.")
         try:
-            import json
             with open(file_path, 'r') as f:
                 data = json.load(f)
             

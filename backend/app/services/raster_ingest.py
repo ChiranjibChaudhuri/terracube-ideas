@@ -4,7 +4,7 @@ import logging
 import os
 import uuid
 from typing import List, Tuple, Optional
-from rasterio.warp import transform as transform_coords
+from rasterio.warp import transform as transform_coords, transform_bounds
 from app.dggal_utils import get_dggal_service
 from app.db import get_db_pool
 
@@ -49,13 +49,21 @@ async def ingest_raster_file(
 
     try:
         with rasterio.open(file_path) as src:
-            bounds = src.bounds
-            # dgg bbox: S, W, N, E
-            dgg_bbox = [bounds.bottom, bounds.left, bounds.top, bounds.right]
-            
             data = src.read(1)
             src_crs = src.crs
             nodata = src.nodata
+            bounds = src.bounds
+
+            # dgg bbox: S, W, N, E (always in EPSG:4326)
+            if src_crs and str(src_crs) not in ("EPSG:4326", "OGC:CRS84"):
+                minx, miny, maxx, maxy = transform_bounds(
+                    src_crs, "EPSG:4326",
+                    bounds.left, bounds.bottom, bounds.right, bounds.top,
+                    densify_pts=21
+                )
+                dgg_bbox = [miny, minx, maxy, maxx]
+            else:
+                dgg_bbox = [bounds.bottom, bounds.left, bounds.top, bounds.right]
 
             def to_dataset_coords(lon: float, lat: float):
                 if not src_crs:
@@ -87,8 +95,10 @@ async def ingest_raster_file(
                         centroid = service.get_centroid(zone_id)
                         x, y = to_dataset_coords(centroid["lon"], centroid["lat"])
 
-                        if not (src.bounds.left <= x <= src.bounds.right and src.bounds.bottom <= y <= src.bounds.top):
-                            continue
+                        # If centroid falls outside raster bounds, clamp to nearest edge
+                        if x < src.bounds.left or x > src.bounds.right or y < src.bounds.bottom or y > src.bounds.top:
+                            x = min(max(x, src.bounds.left), src.bounds.right)
+                            y = min(max(y, src.bounds.bottom), src.bounds.top)
 
                         try:
                             row, col = src.index(x, y)
