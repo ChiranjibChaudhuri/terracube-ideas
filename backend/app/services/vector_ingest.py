@@ -3,6 +3,7 @@ import os
 import uuid
 import logging
 import asyncio
+import json
 from typing import List, Dict, Any, Optional
 import fiona
 from shapely.geometry import shape, Point, box
@@ -114,7 +115,7 @@ async def ingest_vector_file(
         async with conn.transaction():
             # Upsert Dataset check
             # If we passed an ID, it might already exist. If not, insert.
-            row = await conn.fetchrow("SELECT id FROM datasets WHERE id = $1", new_id)
+            row = await conn.fetchrow("SELECT id, metadata FROM datasets WHERE id = $1", new_id)
             if not row:
                 await conn.execute("""
                     INSERT INTO datasets (id, name, dggs_name, metadata)
@@ -142,8 +143,31 @@ async def ingest_vector_file(
                 
                 logger.info(f"Inserted {len(final_cells)} cells for vector layer {dataset_name}")
                 
-                # Update status to ready
-                await conn.execute("UPDATE datasets SET status = 'ready' WHERE id = $1", new_id)
+                # Update status + metadata (attr_key, min/max levels, source type)
+                meta = row['metadata'] if row else {"type": "vector_import", "source": "file"}
+                if meta and isinstance(meta, str):
+                    try:
+                        meta = json.loads(meta)
+                    except Exception:
+                        meta = {}
+                meta = meta or {}
+                existing_min = meta.get('min_level')
+                existing_max = meta.get('max_level')
+                new_min = resolution if existing_min is None else min(int(existing_min), resolution)
+                new_max = resolution if existing_max is None else max(int(existing_max), resolution)
+                meta.update({
+                    "attr_key": attr_key,
+                    "min_level": new_min,
+                    "max_level": new_max,
+                    "source_type": "vector"
+                })
+                level_value = new_min if new_min == new_max else None
+                await conn.execute(
+                    "UPDATE datasets SET status = 'ready', metadata = $1, level = $2 WHERE id = $3",
+                    json.dumps(meta),
+                    level_value,
+                    new_id
+                )
             else:
                 logger.warning("No cells found intersecting features.")
 

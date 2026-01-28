@@ -10,6 +10,7 @@ import { useDatasets } from '../lib/api-hooks';
 import { fetchCells } from '../lib/api';
 import { LayerList } from '../components/LayerList';
 import { ToolboxPanel } from '../components/ToolboxPanel';
+import { getDatasetMetadata, partitionDatasets } from '../lib/datasetUtils';
 
 // Initial View State (North America focus for demo)
 const INITIAL_VIEW_STATE = {
@@ -28,6 +29,10 @@ const DECK_VIEW = new DeckMapView({ id: 'main-map', repeat: true });
 export default function Workbench() {
     const { layers, addLayer } = useAppStore();
     const { data: datasets = [] } = useDatasets();
+    const { data: dataDatasets, results: resultDatasets } = useMemo(
+        () => partitionDatasets(datasets as any[]),
+        [datasets]
+    );
 
     const [isSidebarOpen, setIsSidebarOpen] = useState(true);
     const [layerPolygons, setLayerPolygons] = useState<Record<string, { polygon: number[][]; dggid: string }[]>>({});
@@ -78,7 +83,13 @@ export default function Workbench() {
         }).filter(Boolean);
     }, [layers, layerPolygons]);
 
-    const loadDemoLayer = async (datasetId: string, name: string, attrKey?: string, dggsName?: string) => {
+    const loadDemoLayer = async (
+        datasetId: string,
+        name: string,
+        attrKey?: string,
+        dggsName?: string,
+        origin: 'dataset' | 'operation' = 'dataset'
+    ) => {
         try {
             const result = await fetchCells(datasetId, {
                 key: attrKey,
@@ -94,6 +105,7 @@ export default function Workbench() {
                 visible: true,
                 opacity: 0.5,
                 color: [0, 255, 0],
+                origin,
                 datasetId,
                 attrKey,
                 dggsName
@@ -121,18 +133,44 @@ export default function Workbench() {
                             <div className="section">
                                 <div className="section-title">Available Datasets</div>
                                 <div className="dataset-list">
-                                    {datasets.map((ds: any) => (
+                                    {dataDatasets.map((ds: any) => {
+                                        const metadata = getDatasetMetadata(ds);
+                                        return (
                                         <button
                                             key={ds.id}
-                                            onClick={() => loadDemoLayer(ds.id, ds.name, ds.metadata?.attr_key, ds.dggs_name)}
+                                            onClick={() => loadDemoLayer(ds.id, ds.name, metadata.attr_key, ds.dggs_name, 'dataset')}
                                             className="dataset-item"
                                         >
                                             <span className="dataset-item__name">{ds.name}</span>
                                             <span className="dataset-item__add">+</span>
                                         </button>
-                                    ))}
-                                    {datasets.length === 0 && (
+                                        );
+                                    })}
+                                    {dataDatasets.length === 0 && (
                                         <div className="empty-state">No datasets available. Start the backend to load demo data.</div>
+                                    )}
+                                </div>
+                            </div>
+
+                            {/* Operation Results Section */}
+                            <div className="section">
+                                <div className="section-title">Operation Results</div>
+                                <div className="dataset-list">
+                                    {resultDatasets.map((ds: any) => {
+                                        const metadata = getDatasetMetadata(ds);
+                                        return (
+                                        <button
+                                            key={ds.id}
+                                            onClick={() => loadDemoLayer(ds.id, ds.name, metadata.attr_key, ds.dggs_name, 'operation')}
+                                            className="dataset-item"
+                                        >
+                                            <span className="dataset-item__name">{ds.name}</span>
+                                            <span className="dataset-item__add">+</span>
+                                        </button>
+                                        );
+                                    })}
+                                    {resultDatasets.length === 0 && (
+                                        <div className="empty-state">No operation results yet. Run a toolbox op to create one.</div>
                                     )}
                                 </div>
                             </div>

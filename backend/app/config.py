@@ -34,6 +34,10 @@ class Settings(BaseSettings):
     # Data loading
     LOAD_REAL_DATA: bool = True
 
+    # Operation result cleanup
+    RESULT_TTL_HOURS: int = 24
+    RESULT_CLEANUP_INTERVAL_MINUTES: int = 60
+
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
 settings = Settings()

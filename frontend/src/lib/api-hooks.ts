@@ -7,7 +7,8 @@ export const useDatasets = () => {
         queryFn: async () => {
             const result = await fetchDatasets();
             return result.datasets ?? [];
-        }
+        },
+        refetchInterval: 30000
     });
 };
 

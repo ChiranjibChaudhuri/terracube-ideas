@@ -1,9 +1,10 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { ToolPalette } from './ToolPalette';
 import { ToolModal } from './ToolModal';
 import { useAppStore } from '../lib/store';
 import { type ToolConfig } from '../lib/toolRegistry';
 import { apiFetch } from '../lib/api';
+import { getDefaultLayerId, partitionLayers } from '../lib/layerUtils';
 
 /**
  * ToolboxPanel - Redesigned with two main sections:
@@ -13,9 +14,7 @@ import { apiFetch } from '../lib/api';
 export const ToolboxPanel: React.FC = () => {
     const { layers, updateLayer, addLayer } = useAppStore();
     const [activeTab, setActiveTab] = useState<'style' | 'tools'>('style');
-    const [selectedLayerId, setSelectedLayerId] = useState<string | null>(
-        layers.length > 0 ? layers[0].id : null
-    );
+    const [selectedLayerId, setSelectedLayerId] = useState<string | null>(() => getDefaultLayerId(layers));
     const [selectedTool, setSelectedTool] = useState<ToolConfig | null>(null);
     const [status, setStatus] = useState('');
 
@@ -25,10 +24,15 @@ export const ToolboxPanel: React.FC = () => {
     const [minValue, setMinValue] = useState<string | number>('');
     const [maxValue, setMaxValue] = useState<string | number>('');
 
+    const { datasetLayers, operationLayers } = useMemo(() => partitionLayers(layers), [layers]);
+
     // Ensure a layer is selected if available and none currently selected
     useEffect(() => {
         if (!selectedLayerId && layers.length > 0) {
-            setSelectedLayerId(layers[0].id);
+            const defaultId = getDefaultLayerId(layers);
+            if (defaultId) {
+                setSelectedLayerId(defaultId);
+            }
         }
     }, [layers, selectedLayerId]);
 
@@ -116,6 +120,7 @@ export const ToolboxPanel: React.FC = () => {
                     data: [], // Empty, MapView loads it
                     visible: true,
                     opacity: 0.8,
+                    origin: 'operation',
                     datasetId: result.newDatasetId,
                     attrKey: ['buffer', 'aggregate'].includes(type) ? type : 'intersection',
                     dggsName: layerA.dggsName,
@@ -168,6 +173,7 @@ export const ToolboxPanel: React.FC = () => {
                 visible: true,
                 opacity: 0.6,
                 color: [90, 161, 255],
+                origin: 'operation',
                 dggsName
             });
         }
@@ -212,11 +218,24 @@ export const ToolboxPanel: React.FC = () => {
                                         value={selectedLayerId || ''}
                                         onChange={(e) => setSelectedLayerId(e.target.value)}
                                     >
-                                        {layers.map(layer => (
-                                            <option key={layer.id} value={layer.id}>
-                                                {layer.name}
-                                            </option>
-                                        ))}
+                                        {datasetLayers.length > 0 && (
+                                            <optgroup label="Datasets">
+                                                {datasetLayers.map(layer => (
+                                                    <option key={layer.id} value={layer.id}>
+                                                        {layer.name}
+                                                    </option>
+                                                ))}
+                                            </optgroup>
+                                        )}
+                                        {operationLayers.length > 0 && (
+                                            <optgroup label="Operation Results">
+                                                {operationLayers.map(layer => (
+                                                    <option key={layer.id} value={layer.id}>
+                                                        {layer.name}
+                                                    </option>
+                                                ))}
+                                            </optgroup>
+                                        )}
                                     </select>
                                 </div>
 

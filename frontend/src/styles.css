@@ -254,6 +254,10 @@ button {
   margin-bottom: 0.6rem;
 }
 
+.section-title--sub {
+  margin-top: 1rem;
+}
+
 .search-input {
   width: 100%;
   border-radius: 12px;
@@ -631,6 +635,20 @@ button {
   font-size: 0.85rem;
 }
 
+.layer-group-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.8rem;
+}
+
+.layer-group__title {
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: rgba(244, 241, 234, 0.55);
+  margin-bottom: 0.4rem;
+}
+
 /* Toolbox Panel Styles for Workbench */
 .toolbox-tabs {
   display: flex;
@@ -907,6 +925,36 @@ button {
   margin-bottom: 1rem;
 }
 
+.dataset-search__tabs {
+  display: flex;
+  gap: 0.4rem;
+  margin-bottom: 0.5rem;
+}
+
+.dataset-search__tab {
+  flex: 1;
+  padding: 0.4rem 0.6rem;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(0, 0, 0, 0.25);
+  color: rgba(244, 241, 234, 0.7);
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.dataset-search__tab.active {
+  background: rgba(31, 138, 138, 0.25);
+  border-color: var(--sea-500);
+  color: #f4f1ea;
+}
+
+.dataset-search__tab:hover {
+  border-color: rgba(255, 255, 255, 0.3);
+}
+
 .dataset-search__input-wrapper {
   position: relative;
 }
@@ -952,6 +1000,23 @@ button {
   overflow-y: auto;
   z-index: 100;
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+}
+
+.dataset-search__section {
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.dataset-search__section:first-child {
+  border-top: none;
+}
+
+.dataset-search__section-header {
+  padding: 0.45rem 0.8rem;
+  font-size: 0.65rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: rgba(244, 241, 234, 0.55);
+  background: rgba(0, 0, 0, 0.2);
 }
 
 .dataset-search__item {
@@ -1011,6 +1076,14 @@ button {
   font-size: 0.75rem;
   color: rgba(244, 241, 234, 0.5);
   margin-top: 0.3rem;
+}
+
+.dataset-search__footer {
+  padding: 0.35rem 0.8rem;
+  font-size: 0.7rem;
+  color: rgba(244, 241, 234, 0.45);
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  background: rgba(0, 0, 0, 0.15);
 }
 
 /* ============================================================================

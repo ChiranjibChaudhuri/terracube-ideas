@@ -8,6 +8,8 @@ import { ScaleBar } from '../components/ScaleBar';
 import { ColorLegend } from '../components/ColorLegend';
 import { logout } from '../lib/api';
 import { useAppStore, type LayerConfig } from '../lib/store';
+import { getDatasetMetadata, isOperationResultDataset } from '../lib/datasetUtils';
+import { DEFAULT_FLAT_BASEMAP_ID, DEFAULT_GLOBE_BASEMAP_ID, FLAT_BASEMAPS, GLOBE_BASEMAPS } from '../lib/basemaps';
 import { fetchCells } from '../lib/api';
 
 type Dataset = {
@@ -17,7 +19,7 @@ type Dataset = {
   dggs_name?: string;
   level?: number;
   status?: string;
-  metadata?: Record<string, any>;
+  metadata?: Record<string, any> | string | null;
 };
 
 type CellRecord = {
@@ -55,6 +57,8 @@ const DashboardPage = () => {
   const [coordinates, setCoordinates] = useState<{ lat: number; lng: number } | null>(null);
   const [zoom, setZoom] = useState(1.5);
   const [useGlobe, setUseGlobe] = useState(false);
+  const [flatBasemapId, setFlatBasemapId] = useState(DEFAULT_FLAT_BASEMAP_ID);
+  const [globeBasemapId, setGlobeBasemapId] = useState(DEFAULT_GLOBE_BASEMAP_ID);
 
   // Collapsible sections state
   const [sectionsOpen, setSectionsOpen] = useState({
@@ -67,10 +71,13 @@ const DashboardPage = () => {
     ? [...layers].reverse().find((layer) => layer.datasetId === selectedDataset.id)
     : null;
 
-  const levelMin = Number(selectedDataset?.metadata?.min_level ?? 0);
-  const levelMax = Number(selectedDataset?.metadata?.max_level ?? 12);
+  const selectedMetadata: Record<string, any> = selectedDataset ? getDatasetMetadata(selectedDataset) : {};
+  const levelMin = Number(selectedMetadata.min_level ?? 0);
+  const levelMax = Number(selectedMetadata.max_level ?? 12);
   const clampedLevelMin = Number.isFinite(levelMin) ? levelMin : 0;
   const clampedLevelMax = Number.isFinite(levelMax) ? levelMax : 12;
+  const flatBasemap = FLAT_BASEMAPS.find((bm) => bm.id === flatBasemapId) ?? FLAT_BASEMAPS[0];
+  const globeBasemap = GLOBE_BASEMAPS.find((bm) => bm.id === globeBasemapId) ?? GLOBE_BASEMAPS[0];
 
   const toggleSection = (section: keyof typeof sectionsOpen) => {
     setSectionsOpen(prev => ({ ...prev, [section]: !prev[section] }));
@@ -80,8 +87,22 @@ const DashboardPage = () => {
     setStatus('Loading dataset...');
     setIsLoading(true);
     try {
+      const isOperationResult = isOperationResultDataset(dataset);
       // Don't pre-fetch cells - let MapView load dynamically based on viewport
-      // This enables proper viewport-based and multi-resolution loading
+      // (except for a tiny sample when attr_key is missing)
+      const metadata = getDatasetMetadata(dataset);
+      let attrKey = metadata.attr_key;
+      if (!attrKey) {
+        try {
+          const sample = await fetchCells(dataset.id, { limit: '1' });
+          const sampleKey = sample?.cells?.[0]?.attr_key;
+          if (sampleKey) {
+            attrKey = sampleKey;
+          }
+        } catch {
+          // Ignore lookup errors; MapView will surface missing attr key
+        }
+      }
       addLayer({
         id: `layer-${dataset.id}-${Date.now()}`,
         name: dataset.name,
@@ -89,17 +110,18 @@ const DashboardPage = () => {
         data: [],  // Empty - MapView will load based on viewport
         visible: true,
         opacity: 0.6,
+        origin: isOperationResult ? 'operation' : 'dataset',
         datasetId: dataset.id,
-        attrKey: dataset.metadata?.attr_key,
+        attrKey,
         dggsName: dataset.dggs_name,
-        minValue: dataset.metadata?.min_value,
-        maxValue: dataset.metadata?.max_value,
+        minValue: metadata.min_value,
+        maxValue: metadata.max_value,
       });
       setStatus(`Layer "${dataset.name}" added - cells load on viewport`);
       setSelectedDataset(dataset);
-      setRenderKey(dataset.metadata?.attr_key ?? '');
-      if (dataset.metadata?.min_level) {
-        setFixedLevel(dataset.metadata.min_level);
+      setRenderKey(attrKey ?? '');
+      if (metadata.min_level) {
+        setFixedLevel(metadata.min_level);
       }
     } catch (err) {
       setStatus(err instanceof Error ? err.message : 'Failed to load dataset');
@@ -169,6 +191,36 @@ const DashboardPage = () => {
                   </div>
 
                   <div className="toolbox-field">
+                    <label className="toolbox-label">Flat Basemap</label>
+                    <select
+                      className="toolbox-select"
+                      value={flatBasemapId}
+                      onChange={(e) => setFlatBasemapId(e.target.value)}
+                    >
+                      {FLAT_BASEMAPS.map((bm) => (
+                        <option key={bm.id} value={bm.id}>
+                          {bm.label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="toolbox-field">
+                    <label className="toolbox-label">Globe Basemap</label>
+                    <select
+                      className="toolbox-select"
+                      value={globeBasemapId}
+                      onChange={(e) => setGlobeBasemapId(e.target.value)}
+                    >
+                      {GLOBE_BASEMAPS.map((bm) => (
+                        <option key={bm.id} value={bm.id}>
+                          {bm.label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="toolbox-field">
                     <label className="toolbox-label">Resolution Mode</label>
                     <select
                       className="toolbox-select"
@@ -214,19 +266,21 @@ const DashboardPage = () => {
               attributeKey={renderKey.trim() || null}
               tid={Number(renderTid) || 0}
               dggsName={selectedDataset?.dggs_name ?? null}
+              basemapStyle={flatBasemap?.styleUrl}
+              globeTexture={globeBasemap?.textureUrl}
               layerStyle={activeLayer ? {
                 color: activeLayer.color,
                 opacity: activeLayer.opacity,
                 visible: activeLayer.visible,
-                minValue: activeLayer.minValue ?? selectedDataset?.metadata?.min_value,
-                maxValue: activeLayer.maxValue ?? selectedDataset?.metadata?.max_value,
+                minValue: activeLayer.minValue ?? selectedMetadata.min_value,
+                maxValue: activeLayer.maxValue ?? selectedMetadata.max_value,
                 colorRamp: activeLayer.colorRamp,
               } : undefined}
               mode={mapMode}
               overrideCells={operationCells}
               levelClamp={{
-                min: selectedDataset?.metadata?.min_level,
-                max: selectedDataset?.metadata?.max_level,
+                min: selectedMetadata.min_level,
+                max: selectedMetadata.max_level,
               }}
               levelOverride={levelMode === 'fixed' ? fixedLevel : null}
               onStats={setMapStats}
@@ -245,9 +299,9 @@ const DashboardPage = () => {
               <div className="map-legend">
                 <ColorLegend
                   title={selectedDataset?.name ?? 'Layer'}
-                  min={activeLayer?.minValue ?? selectedDataset?.metadata?.min_value ?? -10}
-                  max={activeLayer?.maxValue ?? selectedDataset?.metadata?.max_value ?? 10}
-                  unit={selectedDataset?.metadata?.attr_key === 'temp_celsius' ? '°C' : ''}
+                  min={activeLayer?.minValue ?? selectedMetadata.min_value ?? -10}
+                  max={activeLayer?.maxValue ?? selectedMetadata.max_value ?? 10}
+                  unit={selectedMetadata.attr_key === 'temp_celsius' ? '°C' : ''}
                   colorRamp={activeLayer?.colorRamp ?? "viridis"}
                 />
               </div>

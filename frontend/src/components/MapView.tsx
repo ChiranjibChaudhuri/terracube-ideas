@@ -20,10 +20,10 @@ import { rgb } from 'd3-color';
 import { fetchCellsByDggids, getChildren, getNeighbors, getParent, listZonesFromBackend } from '../lib/api';
 import { getZoneLevel, resolveZonePolygons, type GeoExtent } from '../lib/dggal';
 
-// Free basemap style - no API key required
+// Default basemap style - no API key required
 const BASEMAP_STYLE = 'https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json';
 
-// NASA Blue Marble earth texture for globe view (bright version)
+// Default earth texture for globe view (bright version)
 const EARTH_TEXTURE_URL = 'https://unpkg.com/three-globe@2.26.0/example/img/earth-blue-marble.jpg';
 
 type CellRecord = {
@@ -78,6 +78,8 @@ type MapViewProps = {
   levelOverride?: number | null;
   relativeDepth?: number;
   useGlobe?: boolean;
+  basemapStyle?: string;
+  globeTexture?: string;
   onStats?: (stats: MapStats) => void;
   onCoordinatesChange?: (coords: { lat: number; lng: number } | null) => void;
   onZoomChange?: (zoom: number) => void;
@@ -147,6 +149,8 @@ const MapView = ({
   levelOverride,
   relativeDepth,
   useGlobe = false,
+  basemapStyle,
+  globeTexture,
   onStats,
   onCoordinatesChange,
   onZoomChange,
@@ -488,7 +492,7 @@ const MapView = ({
         new BitmapLayer({
           id: 'earth-texture',
           bounds: [-180, -90, 180, 90],
-          image: EARTH_TEXTURE_URL,
+          image: globeTexture ?? EARTH_TEXTURE_URL,
         })
       );
     }
@@ -574,7 +578,7 @@ const MapView = ({
       >
         {!useGlobe && (
           <Map
-            mapStyle={BASEMAP_STYLE}
+            mapStyle={basemapStyle ?? BASEMAP_STYLE}
             reuseMaps
           />
         )}

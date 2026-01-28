@@ -7,6 +7,7 @@ export interface LayerConfig {
     data: string[]; // List of DGGIDs
     visible: boolean;
     opacity: number;
+    origin?: 'dataset' | 'operation';
     color?: [number, number, number]; // Optional - if missing, use value-based coloring
     datasetId?: string;
     attrKey?: string;

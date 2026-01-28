@@ -1,6 +1,7 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { type ToolConfig } from '../lib/toolRegistry';
 import { useAppStore } from '../lib/store';
+import { getDefaultLayerId, partitionLayers } from '../lib/layerUtils';
 
 interface ToolModalProps {
     tool: ToolConfig;
@@ -10,13 +11,15 @@ interface ToolModalProps {
 
 export const ToolModal: React.FC<ToolModalProps> = ({ tool, onClose, onExecute }) => {
     const { layers } = useAppStore();
+    const { datasetLayers, operationLayers } = useMemo(() => partitionLayers(layers), [layers]);
+    const defaultLayerId = getDefaultLayerId(layers) ?? '';
     const [params, setParams] = useState<Record<string, any>>(() => {
         const initial: Record<string, any> = {};
         tool.inputs.forEach(input => {
             if (input.default !== undefined) {
                 initial[input.name] = input.default;
-            } else if (input.type === 'layer' && layers.length > 0) {
-                initial[input.name] = layers[0].id;
+            } else if (input.type === 'layer' && defaultLayerId) {
+                initial[input.name] = defaultLayerId;
             }
         });
         return initial;
@@ -56,9 +59,20 @@ export const ToolModal: React.FC<ToolModalProps> = ({ tool, onClose, onExecute }
                         onChange={(e) => handleChange(input.name, e.target.value)}
                     >
                         <option value="">Select layer...</option>
-                        {layers.map(layer => (
-                            <option key={layer.id} value={layer.id}>{layer.name}</option>
-                        ))}
+                        {datasetLayers.length > 0 && (
+                            <optgroup label="Datasets">
+                                {datasetLayers.map(layer => (
+                                    <option key={layer.id} value={layer.id}>{layer.name}</option>
+                                ))}
+                            </optgroup>
+                        )}
+                        {operationLayers.length > 0 && (
+                            <optgroup label="Operation Results">
+                                {operationLayers.map(layer => (
+                                    <option key={layer.id} value={layer.id}>{layer.name}</option>
+                                ))}
+                            </optgroup>
+                        )}
                     </select>
                 );
             case 'number':

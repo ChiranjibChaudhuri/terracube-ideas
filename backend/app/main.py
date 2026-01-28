@@ -1,4 +1,5 @@
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
+import asyncio
 import logging
 from pathlib import Path
 from fastapi import FastAPI, HTTPException
@@ -8,18 +9,26 @@ from fastapi.responses import FileResponse
 from app.config import settings
 from app.init_db import init_db
 from app.seed import seed_admin
+from app.services.result_cleanup import run_result_cleanup_loop
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup
     await init_db()
     await seed_admin()
+
+    cleanup_task = asyncio.create_task(
+        run_result_cleanup_loop(settings.RESULT_TTL_HOURS, settings.RESULT_CLEANUP_INTERVAL_MINUTES)
+    )
     
     # Data loading moved to external 'data-init' service
     # See app/scripts/init_data.py
         
     yield
     # Shutdown (close DB pool if needed, handled globally but good practice)
+    cleanup_task.cancel()
+    with suppress(asyncio.CancelledError):
+        await cleanup_task
     from app.db import close_db_pool
     await close_db_pool()
 
