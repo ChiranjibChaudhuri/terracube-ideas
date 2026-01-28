@@ -77,6 +77,7 @@ services:
     volumes:
       - ./backend/app:/app/app
       - ./backend/db:/app/db
+      - ./backend/tests:/app/tests
       - uploads:/tmp/uploads
     depends_on:
       postgres:

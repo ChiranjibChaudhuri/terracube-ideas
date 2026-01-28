@@ -238,7 +238,7 @@ export const TOOLS: ToolConfig[] = [
         id: 'cellCount',
         name: 'Cell Count',
         category: 'statistics',
-        icon: ' '#️⃣',
+        icon: '#️⃣',
         description: 'Count cells in layer',
         inputs: [
             { name: 'layer', label: 'Input Layer', type: 'layer', required: true },

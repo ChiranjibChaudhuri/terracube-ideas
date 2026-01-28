@@ -57,6 +57,16 @@ DATA_SOURCES = [
         "attr": "temperature_jan",
         "min_lvl": 1,
         "max_lvl": 10
+    },
+    {
+        "name": "Canada Population Density 2020",
+        "type": "raster",
+        "url": "https://data.worldpop.org/GIS/Population/Global_2000_2020/2020/CAN/can_pd_2020_1km.tif",
+        "file": "can_pd_2020_1km.tif",
+        "target_tif": "can_pd_2020_1km.tif",
+        "attr": "pop_density",
+        "min_lvl": 4,
+        "max_lvl": 10
     }
 ]
 

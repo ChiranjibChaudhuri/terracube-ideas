@@ -18,6 +18,8 @@ logging.basicConfig(level=logging.INFO)
 base_url = os.getenv("DATABASE_URL", "postgresql://ideas_user:ideas_password@localhost:5433/ideas")
 if base_url.startswith("postgresql://"):
     base_url = base_url.replace("postgresql://", "postgresql+asyncpg://")
+elif base_url.startswith("postgres://"):
+    base_url = base_url.replace("postgres://", "postgresql+asyncpg://")
 TEST_DATABASE_URL = base_url
 
 @pytest_asyncio.fixture
