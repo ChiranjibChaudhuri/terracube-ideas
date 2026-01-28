@@ -18,7 +18,12 @@ MOCK_DATASETS = [
     "Global Elevation (Lv4)",
     "North America Climate (Lv5)",
     "Europe Climate (Lv5)",
-    "South America Elevation (Lv5)"
+    "South America Elevation (Lv5)",
+    # Test datasets created by backend test suite
+    "DS_A",
+    "DS_B",
+    "Poly Test",
+    "Vector Test"
 ]
 
 async def clear_mock_data():
@@ -47,6 +52,32 @@ async def clear_mock_data():
 
     logger.info("Mock data cleanup complete.")
 
+async def clear_operation_results():
+    """Clear persisted operation result datasets."""
+    logger.info("Cleaning up operation result datasets...")
+    pool = await get_db_pool()
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            """
+            SELECT id, name
+            FROM datasets
+            WHERE
+                metadata->>'source' IN ('spatial_op', 'operation')
+                OR metadata->>'source_type' IN ('spatial_op', 'operation')
+                OR (metadata->'parents') IS NOT NULL
+                OR name ILIKE '% result%'
+            """
+        )
+        for row in rows:
+            table_name = f"cell_objects_{str(row['id']).replace('-', '_')}"
+            try:
+                await conn.execute(f'DROP TABLE IF EXISTS "{table_name}"')
+            except Exception as e:
+                logger.warning(f"Failed to drop partition {table_name}: {e}")
+            await conn.execute("DELETE FROM datasets WHERE id = $1", row['id'])
+            logger.info(f"Deleted operation result dataset: {row['name']} ({row['id']})")
+    logger.info("Operation result cleanup complete.")
+
 async def main():
     logger.info("Starting Data Initialization Service...")
     
@@ -59,6 +90,11 @@ async def main():
             await clear_mock_data()
         except Exception as e:
             logger.error(f"Error cleaning mock data: {e}")
+
+    try:
+        await clear_operation_results()
+    except Exception as e:
+        logger.error(f"Error cleaning operation results: {e}")
     
     try:
         # Load Real Data

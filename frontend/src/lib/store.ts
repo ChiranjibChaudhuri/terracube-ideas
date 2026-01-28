@@ -8,6 +8,7 @@ export interface LayerConfig {
     visible: boolean;
     opacity: number;
     origin?: 'dataset' | 'operation';
+    cellCount?: number;
     color?: [number, number, number]; // Optional - if missing, use value-based coloring
     datasetId?: string;
     attrKey?: string;

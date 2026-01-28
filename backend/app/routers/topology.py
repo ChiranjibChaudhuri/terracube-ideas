@@ -26,8 +26,9 @@ async def list_zones(request: ListZonesRequest = Body(...)):
     if len(request.bbox) != 4:
         raise HTTPException(status_code=400, detail="bbox must have 4 elements: [min_lat, min_lon, max_lat, max_lon]")
     
-    if request.level < 0 or request.level > 15:
-        raise HTTPException(status_code=400, detail="level must be between 0 and 15")
+    max_level = 20
+    if request.level < 0 or request.level > max_level:
+        raise HTTPException(status_code=400, detail=f"level must be between 0 and {max_level}")
     
     service = get_dggal_service(request.dggsName or "IVEA3H")
     

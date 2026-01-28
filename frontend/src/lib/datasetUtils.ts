@@ -1,5 +1,6 @@
 export type DatasetLike = {
   metadata?: Record<string, any> | string | null;
+  name?: string;
 };
 
 const normalizeMetadata = (metadata: DatasetLike['metadata']): Record<string, any> => {
@@ -32,6 +33,10 @@ export const isOperationResultDataset = (dataset: DatasetLike): boolean => {
     return true;
   }
   if (metadata.type && Array.isArray(metadata.parents)) {
+    return true;
+  }
+  const name = typeof dataset.name === 'string' ? dataset.name.toLowerCase() : '';
+  if (name.includes(' result') || name.endsWith('result')) {
     return true;
   }
   return false;

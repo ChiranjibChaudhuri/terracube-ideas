@@ -11,34 +11,41 @@ export const LayerList = () => {
 
     const { datasetLayers, operationLayers } = partitionLayers(layers);
 
-    const renderLayerItem = (layer: LayerConfig) => (
-        <div key={layer.id} className="layer-item">
-            <div className="layer-item__header">
-                <span className="layer-item__name" title={layer.name}>
-                    {layer.name}
-                </span>
-                <span className="layer-item__count">{layer.data.length} cells</span>
-                <button
-                    onClick={() => removeLayer(layer.id)}
-                    className="layer-item__remove"
-                    title="Remove layer"
-                >
-                    ×
-                </button>
-            </div>
+    const renderLayerItem = (layer: LayerConfig) => {
+        const isStreamed = Boolean(layer.datasetId) && layer.data.length === 0;
+        const countLabel = isStreamed
+            ? (layer.cellCount !== undefined ? `${layer.cellCount} in view` : 'streamed')
+            : `${layer.cellCount ?? layer.data.length} cells`;
 
-            <div className="layer-item__controls">
-                <label className="layer-item__checkbox">
-                    <input
-                        type="checkbox"
-                        checked={layer.visible}
-                        onChange={(e) => updateLayer(layer.id, { visible: e.target.checked })}
-                    />
-                    <span>Visible</span>
-                </label>
+        return (
+            <div key={layer.id} className="layer-item">
+                <div className="layer-item__header">
+                    <span className="layer-item__name" title={layer.name}>
+                        {layer.name}
+                    </span>
+                    <span className="layer-item__count">{countLabel}</span>
+                    <button
+                        onClick={() => removeLayer(layer.id)}
+                        className="layer-item__remove"
+                        title="Remove layer"
+                    >
+                        ×
+                    </button>
+                </div>
+
+                <div className="layer-item__controls">
+                    <label className="layer-item__checkbox">
+                        <input
+                            type="checkbox"
+                            checked={layer.visible}
+                            onChange={(e) => updateLayer(layer.id, { visible: e.target.checked })}
+                        />
+                        <span>Visible</span>
+                    </label>
+                </div>
             </div>
-        </div>
-    );
+        );
+    };
 
     return (
         <div className="layer-group-list">

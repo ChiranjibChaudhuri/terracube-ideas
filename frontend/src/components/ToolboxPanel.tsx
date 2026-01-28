@@ -334,7 +334,11 @@ export const ToolboxPanel: React.FC = () => {
                                     <div className="toolbox-layer-info">
                                         <span className="toolbox-layer-info-label">Cells:</span>
                                         <span className="toolbox-layer-info-value">
-                                            {selectedLayer.data?.length?.toLocaleString() ?? 0}
+                                            {selectedLayer.datasetId && selectedLayer.data.length === 0
+                                                ? (selectedLayer.cellCount !== undefined
+                                                    ? `${selectedLayer.cellCount.toLocaleString()} in view`
+                                                    : 'streamed')
+                                                : (selectedLayer.cellCount ?? selectedLayer.data?.length ?? 0).toLocaleString()}
                                         </span>
                                     </div>
                                 )}

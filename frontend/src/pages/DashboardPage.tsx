@@ -39,7 +39,7 @@ type MapStats = {
 };
 
 const DashboardPage = () => {
-  const { layers, addLayer } = useAppStore();
+  const { layers, addLayer, updateLayer } = useAppStore();
   const [selectedDataset, setSelectedDataset] = useState<Dataset | null>(null);
   const [mapMode, setMapMode] = useState<'viewport' | 'operation'>('viewport');
   const [mapStats, setMapStats] = useState<MapStats>({ zoneCount: 0, cellCount: 0 });
@@ -130,6 +130,13 @@ const DashboardPage = () => {
       setIsLoading(false);
     }
   }, [addLayer]);
+
+  const handleMapStats = useCallback((stats: MapStats) => {
+    setMapStats(stats);
+    if (activeLayer) {
+      updateLayer(activeLayer.id, { cellCount: stats.cellCount });
+    }
+  }, [activeLayer, updateLayer]);
 
   return (
     <div className="page dashboard">
@@ -330,7 +337,7 @@ const DashboardPage = () => {
               }}
               levelOverride={levelMode === 'fixed' ? fixedLevel : null}
               levelOffset={levelOffset}
-              onStats={setMapStats}
+              onStats={handleMapStats}
               useGlobe={useGlobe}
               onCoordinatesChange={setCoordinates}
               onZoomChange={setZoom}
