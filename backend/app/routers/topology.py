@@ -43,6 +43,12 @@ async def list_zones(request: ListZonesRequest = Body(...)):
 
 @router.post("/topology")
 async def handle_topology_op(request: SpatialOpRequest = Body(...)):
+    """
+    Perform low-level topology lookups for a single cell.
+    
+    - **type**: Operation type (neighbors, parent, children, vertices)
+    - **dggid**: The target DGGS ID
+    """
     service = get_dggal_service(request.dggsName or "IVEA3H")
     
     try:

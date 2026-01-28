@@ -19,6 +19,12 @@ class RegisterRequest(BaseModel):
 
 @router.post("/login")
 async def login(data: LoginRequest, db: AsyncSession = Depends(get_db)):
+    """
+    Authenticate a user and return a JWT access token.
+    
+    - **email**: User's email address
+    - **password**: User's password
+    """
     import logging
     logger = logging.getLogger("uvicorn.error")
     logger.info(f"Login attempt for {data.email}")
@@ -47,6 +53,13 @@ async def login(data: LoginRequest, db: AsyncSession = Depends(get_db)):
 
 @router.post("/register")
 async def register(data: RegisterRequest, db: AsyncSession = Depends(get_db)):
+    """
+    Register a new user account.
+    
+    - **name**: Full name
+    - **email**: valid email address
+    - **password**: Secure password
+    """
     try:
         repo = UserRepository(db)
         # Check if user exists

@@ -31,6 +31,10 @@ class MaskRequest(BaseModel):
 
 @router.post("/buffer")
 async def buffer_op(request: BufferRequest, user: dict = Depends(get_current_user)):
+    """
+    Calculate buffer zones around a set of DGGS cells.
+    Returns the expanded set of cell IDs.
+    """
     engine = SpatialEngine(request.dggsName or "IVEA3H")
     try:
         result = await engine.buffer(request.dggids, request.iterations)
@@ -40,6 +44,9 @@ async def buffer_op(request: BufferRequest, user: dict = Depends(get_current_use
 
 @router.post("/aggregate")
 async def aggregate_op(request: AggregateRequest, user: dict = Depends(get_current_user)):
+    """
+    Aggregate cells to a coarser resolution level.
+    """
     engine = SpatialEngine(request.dggsName or "IVEA3H")
     try:
         result = await engine.aggregate(request.dggids, request.levels)
@@ -49,6 +56,9 @@ async def aggregate_op(request: AggregateRequest, user: dict = Depends(get_curre
 
 @router.post("/expand")
 async def expand_op(request: ExpandRequest, user: dict = Depends(get_current_user)):
+    """
+    Expand cells to a finer resolution level (children).
+    """
     engine = SpatialEngine(request.dggsName or "IVEA3H")
     try:
         result = await engine.expand(request.dggids, request.iterations)
@@ -62,6 +72,9 @@ class SetOpRequest(BaseModel):
 
 @router.post("/union")
 async def union_op(request: SetOpRequest, user: dict = Depends(get_current_user)):
+    """
+    Compute the set union of two cell lists (in-memory).
+    """
     engine = SpatialEngine()
     try:
         result = engine.union(request.set_a, request.set_b)
@@ -71,6 +84,9 @@ async def union_op(request: SetOpRequest, user: dict = Depends(get_current_user)
 
 @router.post("/intersection")
 async def intersection_op(request: SetOpRequest, user: dict = Depends(get_current_user)):
+    """
+    Compute the set intersection of two cell lists (in-memory).
+    """
     engine = SpatialEngine()
     try:
         result = engine.intersection(request.set_a, request.set_b)
@@ -80,6 +96,9 @@ async def intersection_op(request: SetOpRequest, user: dict = Depends(get_curren
 
 @router.post("/difference")
 async def difference_op(request: SetOpRequest, user: dict = Depends(get_current_user)):
+    """
+    Compute the set difference (A - B) of two cell lists (in-memory).
+    """
     engine = SpatialEngine()
     try:
         result = engine.difference(request.set_a, request.set_b)
@@ -89,6 +108,9 @@ async def difference_op(request: SetOpRequest, user: dict = Depends(get_current_
 
 @router.post("/mask")
 async def mask_op(request: MaskRequest, user: dict = Depends(get_current_user)):
+    """
+    Filter source cells, keeping only those present in the mask set.
+    """
     engine = SpatialEngine()
     try:
         result = engine.mask(request.source_dggids, request.mask_dggids)

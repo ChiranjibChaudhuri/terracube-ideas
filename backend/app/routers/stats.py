@@ -27,6 +27,13 @@ async def calculate_zonal_stats(
     db: AsyncSession = Depends(get_db),
     user: dict = Depends(get_current_user)
 ):
+    """
+    Calculate Zonal Statistics between two datasets.
+    
+    - **zone_dataset_id**: Dataset defining the zones (polygons)
+    - **value_dataset_id**: Dataset containing the numeric values
+    - **operation**: Statistical operation (MEAN, MAX, MIN, COUNT, SUM)
+    """
     try:
         repo = CellObjectRepository(db)
         from sqlalchemy import text

@@ -15,6 +15,13 @@ class QueryRequest(BaseModel):
 
 @router.post("/query")
 async def execute_query(request: QueryRequest = Body(...), db: AsyncSession = Depends(get_db), user: dict = Depends(get_current_user)):
+    """
+    Execute a spatial analytics query (e.g., set operations) on multiple datasets.
+    
+    - **operation**: One of 'intersection', 'union', 'difference'
+    - **dataset_ids**: List of dataset IDs to operate on
+    - **viewport_dggids**: Optional list of DGGS IDs to restrict the operation to a specific viewport
+    """
     if len(request.dataset_ids) < 2:
         raise HTTPException(status_code=400, detail="At least two datasets required for set operations")
         

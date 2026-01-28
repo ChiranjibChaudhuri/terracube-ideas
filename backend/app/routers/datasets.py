@@ -30,6 +30,9 @@ def serialize_dataset(dataset: Dataset):
 
 @router.get("")
 async def list_datasets(search: Optional[str] = None, db: AsyncSession = Depends(get_db)):
+    """
+    List all available datasets, optionally filtered by name.
+    """
     stmt = select(Dataset)
     if search:
         # Use parameterized query to prevent SQL injection
@@ -42,6 +45,9 @@ async def list_datasets(search: Optional[str] = None, db: AsyncSession = Depends
 
 @router.get("/{dataset_id}")
 async def get_dataset(dataset_id: str, db: AsyncSession = Depends(get_db)):
+    """
+    Get detailed metadata for a specific dataset by ID.
+    """
     repo = DatasetRepository(db)
     try:
         dataset = await repo.get_by_id(uuid.UUID(dataset_id))
@@ -60,6 +66,9 @@ async def create_dataset(
     db: AsyncSession = Depends(get_db),
     user: dict = Depends(get_current_user)
 ):
+    """
+    Create a new empty dataset.
+    """
     repo = DatasetRepository(db)
     new_dataset = await repo.create(name=name, description=description, level=level, dggs_name=dggs_name)
     return {"dataset": serialize_dataset(new_dataset)}

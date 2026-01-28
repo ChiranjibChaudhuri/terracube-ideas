@@ -31,6 +31,13 @@ async def upload_file(
     db: AsyncSession = Depends(get_db),
     user: dict = Depends(get_current_user)
 ):
+    """
+    Upload a file (Raster/Vector/CSV) to create or update a dataset.
+    
+    - **file**: The file to upload
+    - **dataset_id**: Optional existing dataset ID to append to
+    - **source_type**: Metadata about the source
+    """
     # Save file to disk
     file_id = str(uuid.uuid4())
     filename = os.path.basename(file.filename or "upload")

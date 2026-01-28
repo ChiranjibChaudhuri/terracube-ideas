@@ -71,6 +71,11 @@ DATA_SOURCES = [
 ]
 
 
+def calculate_backoff(attempt: int, base_delay: float = 2.0, max_delay: float = 60.0) -> float:
+    """Calculate exponential backoff delay."""
+    delay = base_delay * (2 ** attempt)
+    return min(delay, max_delay)
+
 async def download_file(url, filename, subdir="/tmp"):
     local_path = os.path.join(subdir, filename)
     if os.path.exists(local_path):
@@ -80,7 +85,8 @@ async def download_file(url, filename, subdir="/tmp"):
     logger.info(f"Downloading {url}...")
     loop = asyncio.get_event_loop()
     
-    for attempt in range(3):
+    max_retries = 3
+    for attempt in range(max_retries):
         try:
             # Use headers to mimic browser
             headers = {'User-Agent': 'Mozilla/5.0'}
@@ -97,9 +103,13 @@ async def download_file(url, filename, subdir="/tmp"):
                 logger.warning(f"Attempt {attempt+1} failed: {resp.status_code}")
         except Exception as e:
             logger.warning(f"Attempt {attempt+1} error: {e}")
-            await asyncio.sleep(2)
             
-    logger.error(f"Failed to download {url} after 3 attempts.")
+        if attempt < max_retries - 1:
+            delay = calculate_backoff(attempt)
+            logger.info(f"Retrying in {delay}s...")
+            await asyncio.sleep(delay)
+            
+    logger.error(f"Failed to download {url} after {max_retries} attempts.")
     return None
 
 def extract_zip(zip_path, target_file, extract_to="/tmp"):
