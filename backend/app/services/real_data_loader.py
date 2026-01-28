@@ -23,10 +23,19 @@ DATA_SOURCES = [
     {
         "name": "World Countries",
         "type": "vector",
-        "url": "https://raw.githubusercontent.com/johan/world.geo.json/master/countries.geo.json",
-        "file": "countries.geo.json",
+        "url": "https://raw.githubusercontent.com/datasets/geo-countries/master/data/countries.geojson",
+        "file": "countries.geojson",
         "dggs": "IVEA3H",
         "min_lvl": 1,
+        "max_lvl": 10
+    },
+    {
+        "name": "Canada Boundaries",
+        "type": "vector",
+        "url": "https://raw.githubusercontent.com/johan/world.geo.json/master/countries/CAN.geo.json",
+        "file": "CAN.geo.json",
+        "dggs": "IVEA3H",
+        "min_lvl": 4, # Higher start level for regional data? Or just 1-10? Let's do 1-10.
         "max_lvl": 10
     },
     {

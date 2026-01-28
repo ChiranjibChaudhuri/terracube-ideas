@@ -179,6 +179,8 @@ const MapView = ({
   } | null>(null);
   const [selectionPolygons, setSelectionPolygons] = useState<SelectionPolygon[]>([]);
 
+  const [loadingNewLevel, setLoadingNewLevel] = useState(false);
+
   useEffect(() => {
     if (!containerRef.current) return;
     const observer = new ResizeObserver((entries) => {
@@ -216,7 +218,17 @@ const MapView = ({
     }
 
     const currentRequest = ++requestId.current;
-    onStats?.({ zoneCount: 0, cellCount: 0, status: 'Resolving viewport...' });
+
+    // Determine target level
+    let targetLevel = levelOverride ?? 1;
+    if (!levelOverride) {
+      const zoomLevel = viewState.zoom ?? 0;
+      targetLevel = Math.max(1, Math.floor(zoomLevel));
+    }
+    const effectiveMinLevel = useGlobe ? Math.max(levelClamp?.min ?? 0, 1) : levelClamp?.min;
+    const effectiveMaxLevel = useGlobe ? Math.min(levelClamp?.max ?? 10, 10) : levelClamp?.max;
+    if (effectiveMinLevel !== undefined) targetLevel = Math.max(effectiveMinLevel, targetLevel);
+    if (effectiveMaxLevel !== undefined) targetLevel = Math.min(effectiveMaxLevel, targetLevel);
 
     const extent = buildExtent(viewState, size.width, size.height, useGlobe);
     const extentKey = [
@@ -224,7 +236,7 @@ const MapView = ({
       extent.ll.lon.toFixed(4),
       extent.ur.lat.toFixed(4),
       extent.ur.lon.toFixed(4),
-      levelOverride ?? 'auto',
+      targetLevel, // Include targetLevel in key to detect level changes
       relativeDepth ?? 0,
       datasetId,
       attributeKey,
@@ -235,26 +247,13 @@ const MapView = ({
     }
     lastViewportKey.current = extentKey;
 
-    // For globe view, limit resolution to avoid overwhelming the browser with too many zones
-    const effectiveMinLevel = useGlobe ? Math.max(levelClamp?.min ?? 0, 1) : levelClamp?.min;
-    const effectiveMaxLevel = useGlobe ? Math.min(levelClamp?.max ?? 10, 10) : levelClamp?.max;
+    onStats?.({ zoneCount: 0, cellCount: 0, status: 'Resolving viewport...' });
 
-    // Calculate level based on zoom or use override
-    // Formula: level = floor(zoom) (1:1 mapping as requested)
-    // Zoom 1 → L1, Zoom 10 → L10
-    let targetLevel = levelOverride ?? 1;
-    if (!levelOverride) {
-      const zoomLevel = viewState.zoom ?? 0;
-      targetLevel = Math.max(1, Math.floor(zoomLevel));
-    }
-    // Clamp to dataset limits
-    if (effectiveMinLevel !== undefined) targetLevel = Math.max(effectiveMinLevel, targetLevel);
-    if (effectiveMaxLevel !== undefined) targetLevel = Math.min(effectiveMaxLevel, targetLevel);
-
-    // Clear cells if level changed to prevent intersection/overlap of different resolutions during load
-    // Also explicitly force update even if extentKey didn't capture it (though extentKey includes level now)
-    if (targetLevel !== lastLevel.current) {
-      console.log(`[MapView] Level change detected: ${lastLevel.current} -> ${targetLevel}. Clearing polygons to ensure clean multi-resolution transition.`);
+    // Check for level change
+    const levelChanged = targetLevel !== lastLevel.current;
+    if (levelChanged) {
+      console.log(`[MapView] Level change detected: ${lastLevel.current} -> ${targetLevel}. Clearing polygons.`);
+      setLoadingNewLevel(true); // Flag to block rendering of old data
       setViewportCells([]);
       setPolygons([]);
       lastLevel.current = targetLevel;
@@ -281,12 +280,14 @@ const MapView = ({
       console.log(`[MapView] Backend returned ${zoneIds.length} zones at level ${level}`);
     } catch (err) {
       console.error('[MapView] Failed to list zones from backend:', err);
+      if (levelChanged) setLoadingNewLevel(false); // Reset on error
       setViewportCells([]);
       onStats?.({ zoneCount: 0, cellCount: 0, status: 'Zone listing failed' });
       return;
     }
 
     if (!zoneIds.length) {
+      if (levelChanged) setLoadingNewLevel(false);
       setViewportCells([]);
       onStats?.({ level, zoneCount: 0, cellCount: 0, status: 'No zones in view.' });
       return;
@@ -305,6 +306,7 @@ const MapView = ({
       if (err instanceof Error && err.name === 'AbortError') {
         return;
       }
+      if (levelChanged) setLoadingNewLevel(false);
       throw err;
     }
 
@@ -314,6 +316,17 @@ const MapView = ({
 
     const cells = result.cells ?? [];
     setViewportCells(cells);
+    // Note: setLoadingNewLevel(false) happens when polygons are built in the other hook?
+    // Actually, we should reset it here, but policies rely on `activeCells`.
+    // The polygon build effect depends on `activeCells`.
+    // If we set `activeCells` (viewportCells), that effect triggers.
+    // If we set `loadingNewLevel(false)` here, the polygons might not be ready yet.
+    // Ideally, we wait for polygons?
+    // But `setPolygons` is async in effect.
+    // Let's reset it here, assuming `setPolygons([])` earlier cleared the view.
+    // The `isLoading` flag was mainly to FORCE distinct breakdown.
+    setLoadingNewLevel(false);
+
     onStats?.({ level, zoneCount: zoneIds.length, cellCount: cells.length, status: 'Ready' });
   }, [
     attributeKey,
@@ -482,10 +495,11 @@ const MapView = ({
 
     // DGGS cells layer - coordinateSystem defaults to LNGLAT which works for globe
     const styleOpacity = layerStyle?.opacity ?? 1;
-    const dataToRender = layerStyle?.visible === false ? [] : polygons;
+    // Don't render if visible is false OR if we are in the middle of a level loading transition
+    const dataToRender = (layerStyle?.visible === false || loadingNewLevel) ? [] : polygons;
     layerList.push(
       new PolygonLayer<PolygonRecord>({
-        id: 'dggs-polygons',
+        id: `dggs-polygons-${lastLevel.current}`,
         data: dataToRender,
         opacity: styleOpacity,
         getPolygon: (d) => d.polygon,

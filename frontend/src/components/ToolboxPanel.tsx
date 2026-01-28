@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { ToolPalette } from './ToolPalette';
 import { ToolModal } from './ToolModal';
 import { useAppStore } from '../lib/store';
@@ -22,6 +22,15 @@ export const ToolboxPanel: React.FC = () => {
     // Style settings
     const [colorRamp, setColorRamp] = useState('viridis');
     const [opacity, setOpacity] = useState(0.7);
+    const [minValue, setMinValue] = useState<string | number>('');
+    const [maxValue, setMaxValue] = useState<string | number>('');
+
+    // Ensure a layer is selected if available and none currently selected
+    useEffect(() => {
+        if (!selectedLayerId && layers.length > 0) {
+            setSelectedLayerId(layers[0].id);
+        }
+    }, [layers, selectedLayerId]);
 
     // Get selected layer
     const selectedLayer = layers.find(l => l.id === selectedLayerId);
@@ -31,13 +40,23 @@ export const ToolboxPanel: React.FC = () => {
         if (selectedLayer) {
             setOpacity(selectedLayer.opacity);
             setColorRamp(selectedLayer.colorRamp ?? 'viridis');
+            setMinValue(selectedLayer.minValue ?? '');
+            setMaxValue(selectedLayer.maxValue ?? '');
         }
     }, [selectedLayerId, selectedLayer]);
 
     // Apply style to selected layer
     const handleApplyStyle = () => {
         if (selectedLayerId) {
-            updateLayer(selectedLayerId, { opacity, colorRamp });
+            const minNum = typeof minValue === 'string' && minValue !== '' ? Number(minValue) : (typeof minValue === 'number' ? minValue : undefined);
+            const maxNum = typeof maxValue === 'string' && maxValue !== '' ? Number(maxValue) : (typeof maxValue === 'number' ? maxValue : undefined);
+
+            updateLayer(selectedLayerId, {
+                opacity,
+                colorRamp,
+                minValue: (minNum !== undefined && !isNaN(minNum)) ? minNum : undefined,
+                maxValue: (maxNum !== undefined && !isNaN(maxNum)) ? maxNum : undefined
+            });
         }
     };
 
@@ -53,22 +72,27 @@ export const ToolboxPanel: React.FC = () => {
         const layerB = getLayer(params.layerB || params.values || '');
 
         // Persistent Spatial Operations
-        if (['union', 'intersection', 'difference', 'buffer', 'simplify'].includes(toolId)) {
+        const spatialOps = ['union', 'intersection', 'difference', 'buffer', 'simplify', 'clip', 'kRing'];
+        if (spatialOps.includes(toolId)) {
             if (!layerA?.datasetId) { // Check layerA for unary ops
                 throw new Error('Input layer must be a saved dataset.');
             }
-            if (['union', 'intersection', 'difference', 'zonalStats'].includes(toolId) && !layerB?.datasetId) {
+            if (['union', 'intersection', 'difference', 'clip', 'zonalStats'].includes(toolId) && !layerB?.datasetId) {
                 throw new Error('Both layers must be saved datasets.');
             }
 
-            const type = toolId === 'simplify' ? 'aggregate' : toolId;
+            let type = toolId;
+            if (toolId === 'simplify') type = 'aggregate';
+            if (toolId === 'clip') type = 'intersection';
+            if (toolId === 'kRing') type = 'buffer';
+
             const payload = {
                 type: type,
                 datasetAId: layerA.datasetId,
                 datasetBId: layerB?.datasetId,
                 keyA: layerA.attrKey || 'value',
                 keyB: layerB?.attrKey || 'value',
-                limit: toolId === 'buffer' ? Number(params.rings ?? 1) : undefined
+                limit: (toolId === 'buffer' || toolId === 'kRing') ? Number(params.rings ?? params.k ?? 1) : undefined
             };
 
             setStatus(`Running ${toolId}...`);
@@ -212,6 +236,29 @@ export const ToolboxPanel: React.FC = () => {
                                         <option value="elevation">Elevation (Spectral)</option>
                                         <option value="bathymetry">Bathymetry (Blues)</option>
                                     </select>
+                                </div>
+
+                                {/* Data Range Bounds */}
+                                <div className="toolbox-field">
+                                    <label className="toolbox-label">Data Range (Min / Max)</label>
+                                    <div style={{ display: 'flex', gap: '8px' }}>
+                                        <input
+                                            type="number"
+                                            className="toolbox-input"
+                                            placeholder="Min"
+                                            value={minValue}
+                                            onChange={(e) => setMinValue(e.target.value)}
+                                            style={{ width: '50%' }}
+                                        />
+                                        <input
+                                            type="number"
+                                            className="toolbox-input"
+                                            placeholder="Max"
+                                            value={maxValue}
+                                            onChange={(e) => setMaxValue(e.target.value)}
+                                            style={{ width: '50%' }}
+                                        />
+                                    </div>
                                 </div>
 
                                 {/* Opacity */}

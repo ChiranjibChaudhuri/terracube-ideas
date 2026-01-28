@@ -45,7 +45,7 @@ export const TOOLS: ToolConfig[] = [
             { name: 'layer', label: 'Input Layer', type: 'layer', required: true },
             { name: 'rings', label: 'Buffer Rings (k)', type: 'number', default: 1, description: 'Number of cell rings' },
         ],
-        apiEndpoint: '/api/toolbox/buffer',
+        apiEndpoint: '/api/ops/spatial',
     },
     {
         id: 'simplify',
@@ -57,7 +57,7 @@ export const TOOLS: ToolConfig[] = [
             { name: 'layer', label: 'Input Layer', type: 'layer', required: true },
             { name: 'targetLevel', label: 'Target Resolution', type: 'number', default: 2 },
         ],
-        apiEndpoint: '/api/toolbox/aggregate',
+        apiEndpoint: '/api/ops/spatial',
     },
     {
         id: 'convexHull',
@@ -68,6 +68,7 @@ export const TOOLS: ToolConfig[] = [
         inputs: [
             { name: 'layer', label: 'Input Layer', type: 'layer', required: true },
         ],
+        apiEndpoint: '/api/ops/spatial',
     },
     {
         id: 'centroid',
@@ -78,6 +79,7 @@ export const TOOLS: ToolConfig[] = [
         inputs: [
             { name: 'layer', label: 'Input Layer', type: 'layer', required: true },
         ],
+        apiEndpoint: '/api/ops/spatial',
     },
     {
         id: 'boundingBox',
@@ -88,6 +90,7 @@ export const TOOLS: ToolConfig[] = [
         inputs: [
             { name: 'layer', label: 'Input Layer', type: 'layer', required: true },
         ],
+        apiEndpoint: '/api/ops/spatial',
     },
 
     // === OVERLAY ===
@@ -101,7 +104,7 @@ export const TOOLS: ToolConfig[] = [
             { name: 'layerA', label: 'Layer A', type: 'layer', required: true },
             { name: 'layerB', label: 'Layer B', type: 'layer', required: true },
         ],
-        apiEndpoint: '/api/toolbox/union',
+        apiEndpoint: '/api/ops/spatial',
     },
     {
         id: 'intersection',
@@ -113,7 +116,7 @@ export const TOOLS: ToolConfig[] = [
             { name: 'layerA', label: 'Layer A', type: 'layer', required: true },
             { name: 'layerB', label: 'Layer B', type: 'layer', required: true },
         ],
-        apiEndpoint: '/api/toolbox/intersection',
+        apiEndpoint: '/api/ops/spatial',
     },
     {
         id: 'difference',
@@ -125,7 +128,7 @@ export const TOOLS: ToolConfig[] = [
             { name: 'layerA', label: 'Layer A', type: 'layer', required: true },
             { name: 'layerB', label: 'Layer B', type: 'layer', required: true },
         ],
-        apiEndpoint: '/api/toolbox/difference',
+        apiEndpoint: '/api/ops/spatial',
     },
     {
         id: 'symmetricDifference',
@@ -149,7 +152,7 @@ export const TOOLS: ToolConfig[] = [
             { name: 'layer', label: 'Input Layer', type: 'layer', required: true },
             { name: 'mask', label: 'Mask Layer', type: 'layer', required: true },
         ],
-        apiEndpoint: '/api/toolbox/mask',
+        apiEndpoint: '/api/ops/spatial',
     },
 
     // === PROXIMITY ===
@@ -163,6 +166,7 @@ export const TOOLS: ToolConfig[] = [
             { name: 'layer', label: 'Input Layer', type: 'layer', required: true },
             { name: 'k', label: 'Ring Distance (k)', type: 'number', default: 1 },
         ],
+        apiEndpoint: '/api/ops/spatial',
     },
     {
         id: 'hexDistance',
@@ -234,7 +238,7 @@ export const TOOLS: ToolConfig[] = [
         id: 'cellCount',
         name: 'Cell Count',
         category: 'statistics',
-        icon: '#️⃣',
+        icon: ' '#️⃣',
         description: 'Count cells in layer',
         inputs: [
             { name: 'layer', label: 'Input Layer', type: 'layer', required: true },
