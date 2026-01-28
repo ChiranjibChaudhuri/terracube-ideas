@@ -65,7 +65,7 @@ async def test_chaos_query_limit_caps():
 @pytest.mark.asyncio
 async def test_chaos_invalid_dggs_name():
     """Test that invalid DGGS name defaults safely instead of crashing."""
-    async with AsyncClient(base_url="http://localhost:8000") as ac:
+    async with AsyncClient(base_url="http://localhost:4000") as ac:
         headers = await get_auth_headers(ac)
         
         res = await ac.post("/api/toolbox/buffer", json={

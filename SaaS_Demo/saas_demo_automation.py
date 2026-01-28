@@ -63,19 +63,15 @@ async def run_demo():
         await asyncio.sleep(15) 
         await page.screenshot(path=f"{OUTPUT_DIR}/2_dashboard_ready.png")
 
-        print("Scene 3: Basemap Quality (Flat + Globe)")
-        await ensure_section_open(page, "Map Settings", "label:has-text('Globe Basemap')")
+        print("Scene 3: Basemap Quality (Unified Selection)")
+        await ensure_section_open(page, "Map Settings", "label:has-text('Basemap')")
         
-        print("  Setting Carto Voyager basemap...")
-        await page.select_option("select:near(label:has-text('Flat Basemap'))", "carto-voyager")
+        print("  Setting Voyager + Blue Marble HD basemap...")
+        await page.select_option("select:near(label:has-text('Basemap'))", "voyager-blue-marble-hd")
         await asyncio.sleep(8)
         
         print("  Toggling 3D Globe...")
         await page.click("text=3D Globe View") 
-        await asyncio.sleep(8)
-        
-        print("  Setting Blue Marble HD...")
-        await page.select_option("select:near(label:has-text('Globe Basemap'))", "blue-marble")
         await asyncio.sleep(15)
         await page.screenshot(path=f"{OUTPUT_DIR}/3_basemap_quality.png")
 

@@ -23,8 +23,8 @@ import { getZoneLevel, resolveZonePolygons, type GeoExtent } from '../lib/dggal'
 // Default basemap style - no API key required
 const BASEMAP_STYLE = 'https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json';
 
-// Default earth texture for globe view (bright version)
-const EARTH_TEXTURE_URL = 'https://unpkg.com/three-globe@2.26.0/example/img/earth-blue-marble.jpg';
+// Default earth texture for globe view (local to avoid CORS)
+const EARTH_TEXTURE_URL = '/basemaps/blue-marble-hd.png';
 
 type CellRecord = {
   dggid: string;
@@ -231,8 +231,9 @@ const MapView = ({
       const zoomLevel = viewState.zoom ?? 0;
       targetLevel = Math.max(1, Math.floor(zoomLevel + levelOffset));
     }
+    const globeMaxLevel = 20;
     const effectiveMinLevel = useGlobe ? Math.max(levelClamp?.min ?? 0, 1) : levelClamp?.min;
-    const effectiveMaxLevel = useGlobe ? Math.min(levelClamp?.max ?? 15, 15) : levelClamp?.max;
+    const effectiveMaxLevel = useGlobe ? Math.min(levelClamp?.max ?? globeMaxLevel, globeMaxLevel) : levelClamp?.max;
     if (effectiveMinLevel !== undefined) targetLevel = Math.max(effectiveMinLevel, targetLevel);
     if (effectiveMaxLevel !== undefined) targetLevel = Math.min(effectiveMaxLevel, targetLevel);
 

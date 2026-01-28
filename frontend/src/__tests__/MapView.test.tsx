@@ -74,7 +74,9 @@ describe('MapView Zoom Logic', () => {
         // listZonesFromBackend(targetLevel, bbox, ...)
         expect(mockListZones).toHaveBeenLastCalledWith(1, expect.any(Array), undefined, 2600);
     });
-    it('renders Map and DeckGL components with correct props', () => {
+    it('renders Map and DeckGL components with correct props', async () => {
+        mockListZones.mockResolvedValue({ zones: ['Z1'], level: 1 });
+
         render(
             <MapView
                 datasetId="test-ds"
@@ -83,6 +85,10 @@ describe('MapView Zoom Logic', () => {
                 useGlobe={false}
             />
         );
+
+        await waitFor(() => {
+            expect(mockListZones).toHaveBeenCalled();
+        }, { timeout: 1000 });
 
         // Check internal Map component (MapLibre/Mapbox) is rendered
         expect(screen.getByTestId('maplibre')).toBeInTheDocument();

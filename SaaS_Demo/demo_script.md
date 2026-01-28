@@ -32,15 +32,14 @@
 **Key Message:** Secure, high-performance access to global-scale DGGS datasets.
 **Visual:** Dashboard with 2D map view and empty layer list.
 
-## Scene 3: Basemap Quality (Flat + Globe)
+## Scene 3: Basemap Quality (Unified Selection)
 **Action:**
 1. Open **Map Settings**.
-2. Set **Flat Basemap** to “Carto Voyager.”
+2. Select **Basemap** "Voyager + Blue Marble HD."
 3. Toggle **3D Globe View** ON.
-4. Set **Globe Basemap** to “Blue Marble HD.”
-5. Rotate and zoom the globe.
-**Key Message:** Crisp basemaps for both flat and globe views.
-**Visual:** High-quality earth texture in globe view.
+4. Rotate and zoom the globe.
+**Key Message:** Unified basemap selection simplifies high-quality visualization across flat and globe views.
+**Visual:** High-quality earth texture in globe view defaults to Blue Marble HD.
 
 ## Scene 4: Dataset vs Results (Clean Separation)
 **Action:**

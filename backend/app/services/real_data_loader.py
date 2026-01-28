@@ -56,7 +56,7 @@ DATA_SOURCES = [
         "target_tif": "PlanetDEM_3s_Kilimandjaro.tif",
         "attr": "elevation_m",
         "min_lvl": 1,
-        "max_lvl": 15
+        "max_lvl": 20
     },
     {
         "name": "USGS DEM Sample (o41078a5)",

@@ -9,7 +9,7 @@ import { ColorLegend } from '../components/ColorLegend';
 import { logout } from '../lib/api';
 import { useAppStore, type LayerConfig } from '../lib/store';
 import { getDatasetMetadata, isOperationResultDataset } from '../lib/datasetUtils';
-import { DEFAULT_FLAT_BASEMAP_ID, DEFAULT_GLOBE_BASEMAP_ID, FLAT_BASEMAPS, GLOBE_BASEMAPS } from '../lib/basemaps';
+import { BASEMAPS, DEFAULT_BASEMAP_ID } from '../lib/basemaps';
 import { fetchCells } from '../lib/api';
 
 type Dataset = {
@@ -58,8 +58,7 @@ const DashboardPage = () => {
   const [coordinates, setCoordinates] = useState<{ lat: number; lng: number } | null>(null);
   const [zoom, setZoom] = useState(1.5);
   const [useGlobe, setUseGlobe] = useState(false);
-  const [flatBasemapId, setFlatBasemapId] = useState(DEFAULT_FLAT_BASEMAP_ID);
-  const [globeBasemapId, setGlobeBasemapId] = useState(DEFAULT_GLOBE_BASEMAP_ID);
+  const [basemapId, setBasemapId] = useState(DEFAULT_BASEMAP_ID);
 
   // Collapsible sections state
   const [sectionsOpen, setSectionsOpen] = useState({
@@ -79,8 +78,7 @@ const DashboardPage = () => {
   const levelMax = Number(selectedMetadata.max_level ?? 15);
   const clampedLevelMin = Number.isFinite(levelMin) ? levelMin : 0;
   const clampedLevelMax = Number.isFinite(levelMax) ? levelMax : 15;
-  const flatBasemap = FLAT_BASEMAPS.find((bm) => bm.id === flatBasemapId) ?? FLAT_BASEMAPS[0];
-  const globeBasemap = GLOBE_BASEMAPS.find((bm) => bm.id === globeBasemapId) ?? GLOBE_BASEMAPS[0];
+  const basemap = BASEMAPS.find((bm) => bm.id === basemapId) ?? BASEMAPS[0];
 
   const toggleSection = (section: keyof typeof sectionsOpen) => {
     setSectionsOpen(prev => ({ ...prev, [section]: !prev[section] }));
@@ -238,28 +236,13 @@ const DashboardPage = () => {
                   </div>
 
                   <div className="toolbox-field">
-                    <label className="toolbox-label">Flat Basemap</label>
+                    <label className="toolbox-label">Basemap</label>
                     <select
                       className="toolbox-select"
-                      value={flatBasemapId}
-                      onChange={(e) => setFlatBasemapId(e.target.value)}
+                      value={basemapId}
+                      onChange={(e) => setBasemapId(e.target.value)}
                     >
-                      {FLAT_BASEMAPS.map((bm) => (
-                        <option key={bm.id} value={bm.id}>
-                          {bm.label}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-
-                  <div className="toolbox-field">
-                    <label className="toolbox-label">Globe Basemap</label>
-                    <select
-                      className="toolbox-select"
-                      value={globeBasemapId}
-                      onChange={(e) => setGlobeBasemapId(e.target.value)}
-                    >
-                      {GLOBE_BASEMAPS.map((bm) => (
+                      {BASEMAPS.map((bm) => (
                         <option key={bm.id} value={bm.id}>
                           {bm.label}
                         </option>
@@ -329,8 +312,8 @@ const DashboardPage = () => {
               attributeKey={renderKey.trim() || null}
               tid={Number(renderTid) || 0}
               dggsName={selectedDataset?.dggs_name ?? null}
-              basemapStyle={flatBasemap?.styleUrl}
-              globeTexture={globeBasemap?.textureUrl}
+              basemapStyle={basemap?.styleUrl}
+              globeTexture={basemap?.textureUrl}
               layerStyle={activeLayer ? {
                 color: activeLayer.color,
                 opacity: activeLayer.opacity,

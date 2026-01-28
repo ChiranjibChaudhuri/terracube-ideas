@@ -5,6 +5,7 @@ import { useAppStore } from '../lib/store';
 import { type ToolConfig } from '../lib/toolRegistry';
 import { apiFetch } from '../lib/api';
 import { getDefaultLayerId, partitionLayers } from '../lib/layerUtils';
+import { COLOR_RAMPS } from './ColorLegend';
 
 /**
  * ToolboxPanel - Redesigned with two main sections:
@@ -63,6 +64,20 @@ export const ToolboxPanel: React.FC = () => {
             });
         }
     };
+
+    const formatRangeLabel = (value: string | number, fallback: string) => {
+        if (value === '' || value === null || value === undefined) {
+            return fallback;
+        }
+        const num = typeof value === 'number' ? value : Number(value);
+        if (!Number.isFinite(num)) {
+            return String(value);
+        }
+        const rounded = Math.round(num * 100) / 100;
+        return Number.isInteger(rounded) ? String(rounded) : String(rounded);
+    };
+
+    const rampGradient = COLOR_RAMPS[colorRamp] ?? COLOR_RAMPS.viridis;
 
     // Handle tool execution
     const handleToolExecute = async (toolId: string, params: Record<string, any>) => {
@@ -276,6 +291,16 @@ export const ToolboxPanel: React.FC = () => {
                                             value={maxValue}
                                             onChange={(e) => setMaxValue(e.target.value)}
                                             style={{ width: '50%' }}
+                                        />
+                                    </div>
+                                    <div className="toolbox-colorbar">
+                                        <div className="toolbox-colorbar__labels">
+                                            <span>{formatRangeLabel(minValue, 'Min')}</span>
+                                            <span>{formatRangeLabel(maxValue, 'Max')}</span>
+                                        </div>
+                                        <div
+                                            className="toolbox-colorbar__ramp"
+                                            style={{ background: rampGradient }}
                                         />
                                     </div>
                                 </div>
