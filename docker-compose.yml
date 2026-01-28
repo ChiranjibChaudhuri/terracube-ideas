@@ -126,7 +126,29 @@ services:
     depends_on:
       - backend
 
+  data-init:
+    build: ./backend
+    container_name: ideas-data-init
+    command: python -m app.scripts.init_data
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-postgres://ideas_user:ideas_password@postgres:5432/ideas}
+      JWT_SECRET: ${JWT_SECRET:-change-me-in-production}
+      MINIO_ENDPOINT: ${MINIO_ENDPOINT:-minio}
+      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY:-minioadmin}
+      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:-minioadmin}
+      MINIO_BUCKET: ${MINIO_BUCKET:-ideas-staging}
+      CLEAN_MOCK_DATA: "true"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      backend:
+        condition: service_started
+    volumes:
+      - ./backend/app:/app/app
+      - downloads_cache:/tmp
+
 volumes:
   pgdata:
   minio-data:
   uploads:
+  downloads_cache:

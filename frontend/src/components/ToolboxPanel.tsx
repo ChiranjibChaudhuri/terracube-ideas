@@ -32,7 +32,7 @@ export const ToolboxPanel: React.FC = () => {
             setOpacity(selectedLayer.opacity);
             setColorRamp(selectedLayer.colorRamp ?? 'viridis');
         }
-    }, [selectedLayerId, selectedLayer]); // Re-run when selection or the layer itself changes (e.g. from other updates)
+    }, [selectedLayerId, selectedLayer]);
 
     // Apply style to selected layer
     const handleApplyStyle = () => {
@@ -52,18 +52,23 @@ export const ToolboxPanel: React.FC = () => {
         const layerA = getLayer(params.layerA || params.layer || params.zones || '');
         const layerB = getLayer(params.layerB || params.values || '');
 
-        // Persistent Spatial Operations (Union, Intersection, Difference)
-        if (toolId === 'union' || toolId === 'intersection' || toolId === 'difference') {
-            if (!layerA?.datasetId || !layerB?.datasetId) {
-                throw new Error('Selected layers must be saved datasets (not transient).');
+        // Persistent Spatial Operations
+        if (['union', 'intersection', 'difference', 'buffer', 'simplify'].includes(toolId)) {
+            if (!layerA?.datasetId) { // Check layerA for unary ops
+                throw new Error('Input layer must be a saved dataset.');
+            }
+            if (['union', 'intersection', 'difference', 'zonalStats'].includes(toolId) && !layerB?.datasetId) {
+                throw new Error('Both layers must be saved datasets.');
             }
 
+            const type = toolId === 'simplify' ? 'aggregate' : toolId;
             const payload = {
-                type: toolId,
+                type: type,
                 datasetAId: layerA.datasetId,
-                datasetBId: layerB.datasetId,
+                datasetBId: layerB?.datasetId,
                 keyA: layerA.attrKey || 'value',
-                keyB: layerB.attrKey || 'value'
+                keyB: layerB?.attrKey || 'value',
+                limit: toolId === 'buffer' ? Number(params.rings ?? 1) : undefined
             };
 
             setStatus(`Running ${toolId}...`);
@@ -74,14 +79,11 @@ export const ToolboxPanel: React.FC = () => {
 
             if (result.newDatasetId) {
                 // Determine name
-                const name = `${toolId} result`;
+                const name = `${tool?.name} result`;
 
                 // Add as a new Dataset Layer (fetched from DB)
                 // We use addLayer properties similar to handleDatasetSelect
                 setStatus('Loading result...');
-
-                // Fetch stats/metadata if possible, or just add logic to let MapView load it
-                // We can fake a "Dataset" object or just pass params
 
                 addLayer({
                     id: `layer-${result.newDatasetId}`,
@@ -91,41 +93,28 @@ export const ToolboxPanel: React.FC = () => {
                     visible: true,
                     opacity: 0.8,
                     datasetId: result.newDatasetId,
-                    attrKey: 'intersection', // or whatever we saved
-                    dggsName: layerA.dggsName, // access from layer property
-                    // Metadata/Range might be unknown initially, MapView handles it?
+                    attrKey: ['buffer', 'aggregate'].includes(type) ? type : 'intersection',
+                    dggsName: layerA.dggsName,
                 });
                 setStatus('Operation complete. Layer added.');
             }
             return;
         }
 
-        // ... Existing logic for other tools (buffer etc) ...
+        // ... Existing logic for other tools ...
         const apiEndpoint = tool?.apiEndpoint;
         if (!apiEndpoint) throw new Error('Tool endpoint not defined');
 
         let payload: Record<string, any> = {};
-        if (toolId === 'buffer') {
-            if (!layerA) throw new Error('Select a valid layer.');
-            payload = {
-                dggids: layerA.data,
-                iterations: Number(params.rings ?? 1),
-                dggsName: layerA.dggsName
-            };
-        } else if (toolId === 'simplify') {
-            if (!layerA) throw new Error('Select a valid layer.');
-            payload = {
-                dggids: layerA.data,
-                levels: Number(params.targetLevel ?? 1),
-                dggsName: layerA.dggsName
-            };
-            // } else if (toolId === 'union' || toolId === 'intersection' || toolId === 'difference') {
-            // Handled above
-        } else if (toolId === 'clip') {
+        if (toolId === 'clip') {
             const maskLayer = getLayer(params.mask || '');
             if (!layerA || !maskLayer) throw new Error('Select input and mask layers.');
             payload = { source_dggids: layerA.data, mask_dggids: maskLayer.data };
         } else if (toolId === 'zonalStats') {
+            // ... kept as is (uses transient? No, ZonalStats is persistent? 
+            // Tool says persistent in checks check above?
+            // Actually I didn't include zonalStats in the array above.
+            // It's checked here.
             if (!layerA?.datasetId || !layerB?.datasetId) {
                 throw new Error('Zonal stats requires layers loaded from datasets.');
             }
@@ -207,21 +196,22 @@ export const ToolboxPanel: React.FC = () => {
                                     </select>
                                 </div>
 
-                                {/* Color Ramp */}
+                                {/* Color Ramp Dropdown (New Centralized Control) */}
                                 <div className="toolbox-field">
                                     <label className="toolbox-label">Color Ramp</label>
-                                    <div className="color-ramp-options">
-                                        {['viridis', 'plasma', 'magma', 'inferno', 'temperature', 'elevation', 'bathymetry'].map(ramp => (
-                                            <button
-                                                key={ramp}
-                                                className={`color-ramp-btn ${colorRamp === ramp ? 'active' : ''}`}
-                                                onClick={() => setColorRamp(ramp)}
-                                                title={ramp}
-                                            >
-                                                <div className={`color-ramp-preview color-ramp--${ramp}`} />
-                                            </button>
-                                        ))}
-                                    </div>
+                                    <select
+                                        className="toolbox-select"
+                                        value={colorRamp}
+                                        onChange={(e) => setColorRamp(e.target.value)}
+                                    >
+                                        <option value="viridis">Viridis (Default)</option>
+                                        <option value="plasma">Plasma</option>
+                                        <option value="magma">Magma</option>
+                                        <option value="inferno">Inferno</option>
+                                        <option value="temperature">Temperature (Red-Blue)</option>
+                                        <option value="elevation">Elevation (Spectral)</option>
+                                        <option value="bathymetry">Bathymetry (Blues)</option>
+                                    </select>
                                 </div>
 
                                 {/* Opacity */}

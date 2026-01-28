@@ -198,6 +198,9 @@ const DashboardPage = () => {
           </div>
 
           <div className="sidebar-footer">
+            <div className="sidebar-attribution">
+              Powered by <a href="https://github.com/r-barnes/dggal" target="_blank" rel="noopener noreferrer">DGGAL</a>
+            </div>
             <button className="button-secondary" onClick={() => { logout(); window.location.href = '/'; }}>
               Sign out
             </button>

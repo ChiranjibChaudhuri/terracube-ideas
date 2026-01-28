@@ -21,7 +21,9 @@ dependencies = [
     "redis>=5.0.1",
     "sqlalchemy>=2.0.30",
     "prometheus-fastapi-instrumentator>=7.0.0",
-    "shapely>=2.0.0"
+    "shapely>=2.0.0",
+    "requests>=2.31.0",
+    "fiona>=1.9.0"
 ]
 
 [tool.setuptools]

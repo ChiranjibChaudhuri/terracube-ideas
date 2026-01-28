@@ -105,7 +105,11 @@ const LandingPage = () => {
           </motion.div>
         ))}
       </section>
-    </div>
+
+      <footer className="landing-footer">
+        <p>Powered by <a href="https://github.com/ecere/dggal" target="_blank" rel="noopener noreferrer">DGGAL</a> &copy; 2025 TerraCube IDEAS</p>
+      </footer>
+    </div >
   );
 };
 

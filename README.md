@@ -5,15 +5,16 @@ This repo is a minimal end-to-end demo of an IDEAS-style data model running on I
 ## Architecture highlights
 - **IDEAS data model**: `cell_objects` stores `(dggid, tid, key, value, dataset)` in a long table, mirroring the IDEAS 5-tuple.
 - **DGGS only**: No server-side geometry or PostGIS. Spatial queries are table operations on `dggid` and attributes.
+- **Database-Centric Spatial Engine**: All spatial operations (Buffer, Aggregate, Union, Intersection) are performed via SQL queries (JOINs, CTEs) on the `cell_objects` table.
+- **Topology Table**: `dgg_topology` stores neighbor and parent relationships to enable spatial traversal (e.g., K-ring buffering) without in-memory calculation.
 - **Client rendering**: DGGAL WASM generates IVEA3H polygon vertices in the browser.
-- **OGC DGGS-style visualization**: The frontend lists DGGS zones for the current viewport extent and zoom, fetches matching cell attributes, then joins + renders locally (no vector tiles).
-- **Staging pipeline**: Redis + Celery preprocess uploads into DGGS cell objects; raster ingestion samples centroids on the backend.
+- **OGC DGGS-style visualization**: The frontend lists DGGS zones for the current viewport extent and zoom, fetches matching cell attributes, then joins + renders locally.
 
 ## Repo layout
 - `backend/`: FastAPI API, Postgres schema, Celery worker for ingestion.
+- `backend/app/scripts/`: Database population scripts (e.g., `populate_topology.py`).
 - `frontend/`: Vite + React + Deck.gl UI with GSAP/Framer Motion landing page and DGGS dashboard.
 - `docker-compose.yml`: Postgres, Redis, MinIO.
-- `backend_node_archive/`: legacy Fastify backend (reference only; not used by current app).
 
 ## Quick start
 1) Start infra:
@@ -26,24 +27,40 @@ docker compose up -d
 psql postgresql://ideas_user:ideas_password@localhost:5433/ideas -f backend/db/schema.sql
 ```
 
-3) Backend:
+3) **Initialize Topology** (Required for Buffer/Aggregate):
+```bash
+# Ensure specific python environment with dggal is used
+# (e.g., inside backend container or local venv)
+python backend/app/init_db.py
+python backend/app/scripts/populate_topology.py
+```
+*Note: This generates neighbor constants for Levels 1-7 (~200k rows).*
+
+4) **Load Real Data** (Optional - requires internet):
+```bash
+python backend/app/scripts/load_real_data.py
+```
+*Downloads and ingests World Countries vector dataset.*
+
+5) Backend:
 ```bash
 cd backend
 cp .env.example .env
+# Setup venv and install dependencies...
 python -m venv .venv
 source .venv/bin/activate
 pip install -e .
 uvicorn app.main:app --reload --port 4000
 ```
 
-4) Worker:
+5) Worker:
 ```bash
 cd backend
 source .venv/bin/activate
 celery -A app.celery_app worker --loglevel=info
 ```
 
-5) Frontend:
+6) Frontend:
 ```bash
 cd frontend
 npm install
@@ -52,7 +69,18 @@ npm run dev
 
 Open `http://localhost:5173`.
 
-## Upload format
+## Spatial Operations (Persistent)
+The system eschews on-the-fly "toolbox" calculations in favor of persistent Dataset operations.
+All spatial tools create a **New Dataset** representing the result.
+
+### Available Operations (`POST /api/ops/spatial`)
+- **Intersection**: `A n B` (Avg values)
+- **Union**: `A u B` (Merge sets)
+- **Difference**: `A - B` (Spatial subtraction)
+- **Buffer**: Expands cells by K-rings using `dgg_topology`.
+- **Aggregate**: Groups cells to parent level (mean value) using `dgg_topology`.
+
+### Upload format
 The ingestion worker accepts CSV/JSON files with DGGS cell rows, or GeoTIFF rasters.
 
 Sample files are available in `backend/db/sample_cells.csv` and `backend/db/sample_cells.json`.
@@ -72,22 +100,14 @@ W6H2,0,temperature,19.1
 ]
 ```
 
-Notes:
-- `dggid` should be a DGGAL zone text ID (IVEA3H). The frontend converts this to geometry.
-- `tid` defaults to 0 if not provided.
-- `value` can be numeric or text.
-- Uploads can optionally pass `datasetName`, `attrKey`, `minLevel`, `maxLevel`, and `sourceType` in the multipart form.
-
 ## API overview
 - `POST /api/auth/register`, `POST /api/auth/login`
 - `GET /api/datasets`, `GET /api/datasets/:id`
 - `GET /api/datasets/:id/cells`
 - `POST /api/datasets/:id/lookup` (fetch by viewport dggid list)
 - `POST /api/ops/query` (range/filter/aggregate ops)
-- `POST /api/ops/spatial` (intersection/zonal DGGS joins with resolution checks)
-- `POST /api/ops/topology` (neighbors/parent/children/vertices)
-- `POST /api/analytics/query` (set ops across datasets)
-- `POST /api/toolbox/*` (buffer/union/intersection/difference/mask)
+- `POST /api/ops/spatial` (Persistent: Intersection, Union, Difference, Buffer, Aggregate)
+- ~~`POST /api/toolbox/*`~~ (Deprecated in favor of persistent ops)
 - `POST /api/stats/zonal_stats`
 - `POST /api/uploads` (file staging + preprocess job)
 

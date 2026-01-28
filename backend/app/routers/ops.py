@@ -23,9 +23,9 @@ class QueryRequest(BaseModel):
     limit: Optional[int] = 5000
 
 class SpatialRequest(BaseModel):
-    type: Literal["intersection", "zonal", "union", "difference"]
+    type: Literal["intersection", "zonal", "union", "difference", "buffer", "aggregate", "propagate"]
     datasetAId: str
-    datasetBId: str
+    datasetBId: Optional[str] = None
     keyA: str
     keyB: Optional[str] = None
     tid: Optional[int] = None
@@ -154,30 +154,46 @@ def _ranges_overlap(a: Optional[dict], b: Optional[dict]):
 @router.post("/spatial")
 async def run_spatial(request: SpatialRequest = Body(...), db: AsyncSession = Depends(get_db), user: dict = Depends(get_current_user)):
     dataset_a = _parse_uuid(request.datasetAId, "datasetAId")
-    dataset_b = _parse_uuid(request.datasetBId, "datasetBId")
+    dataset_b = _parse_uuid(request.datasetBId, "datasetBId") if request.datasetBId else None
+    
     limit = min(max(request.limit or 1, 1), 50000) # Higher limit for persistence
 
-    result = await db.execute(select(Dataset).where(Dataset.id.in_([dataset_a, dataset_b])))
+    ids_to_fetch = [dataset_a]
+    if dataset_b:
+        ids_to_fetch.append(dataset_b)
+
+    result = await db.execute(select(Dataset).where(Dataset.id.in_(ids_to_fetch)))
     datasets = {str(ds.id): ds for ds in result.scalars().all()}
 
-    if str(dataset_a) not in datasets or str(dataset_b) not in datasets:
-        raise HTTPException(status_code=404, detail="Dataset not found")
+    if str(dataset_a) not in datasets:
+        raise HTTPException(status_code=404, detail="Dataset A not found")
+    if dataset_b and str(dataset_b) not in datasets:
+        raise HTTPException(status_code=404, detail="Dataset B not found")
 
     ds_a = datasets[str(dataset_a)]
-    ds_b = datasets[str(dataset_b)]
+    ds_b = datasets.get(str(dataset_b)) if dataset_b else None
 
-    if ds_a.dggs_name != ds_b.dggs_name:
+    if ds_b and ds_a.dggs_name != ds_b.dggs_name:
         raise HTTPException(status_code=409, detail="DGGS mismatch between datasets.")
 
     # Create new result dataset
     new_id = uuid.uuid4()
     op_name = request.type.capitalize()
+    
+    desc = f"{op_name} of {ds_a.name}"
+    if ds_b:
+        desc += f" and {ds_b.name}"
+
+    parents = [str(dataset_a)]
+    if dataset_b:
+        parents.append(str(dataset_b))
+
     new_dataset = Dataset(
         id=new_id,
         name=f"{op_name} Result",
-        description=f"{op_name} of {ds_a.name} and {ds_b.name}",
+        description=desc,
         dggs_name=ds_a.dggs_name,
-        metadata_={"source": "spatial_op", "type": request.type, "parents": [str(dataset_a), str(dataset_b)]},
+        metadata_={"source": "spatial_op", "type": request.type, "parents": parents},
         status="processing" # Will update to ready
     )
     db.add(new_dataset)
@@ -235,6 +251,88 @@ async def run_spatial(request: SpatialRequest = Body(...), db: AsyncSession = De
                 LEFT JOIN cell_objects b ON a.dggid = b.dggid AND b.dataset_id = :dataset_b
                 WHERE a.dataset_id = :dataset_a AND b.dggid IS NULL
             """), {"new_id": new_id, "dataset_a": dataset_a, "dataset_b": dataset_b})
+
+        elif request.type == "buffer":
+            # Buffer: K-Ring neighbors using dgg_topology
+            # Recursive CTE to find neighbors up to K hops
+            iterations = request.limit if request.limit else 1
+            iterations = min(iterations, 5) # Cap iterations for safety
+            
+            await db.execute(text("""
+                WITH RECURSIVE bfs AS (
+                    SELECT dggid, 0 as depth FROM cell_objects WHERE dataset_id = :dataset_a
+                    UNION
+                    SELECT t.neighbor_dggid, bfs.depth + 1
+                    FROM bfs
+                    JOIN dgg_topology t ON bfs.dggid = t.dggid
+                    WHERE bfs.depth < :iterations
+                )
+                INSERT INTO cell_objects (dataset_id, dggid, tid, attr_key, value_num, value_text, value_json)
+                SELECT DISTINCT CAST(:new_id AS UUID), b.dggid, 0, 'buffer', CAST(NULL AS FLOAT), 'Buffer', CAST(NULL AS JSONB)
+                FROM bfs b
+            """), {"new_id": new_id, "dataset_a": dataset_a, "iterations": iterations})
+
+        elif request.type == "aggregate":
+            # Aggregate: Move to parent level
+            # We join with topology to get parent, then group by parent
+            # Aggregation function: Mean of value_num
+            await db.execute(text("""
+                INSERT INTO cell_objects (dataset_id, dggid, tid, attr_key, value_num, value_text, value_json)
+                SELECT CAST(:new_id AS UUID), t.parent_dggid, 0, 'aggregate', AVG(a.value_num), 'Aggregated', CAST(NULL AS JSONB)
+                FROM cell_objects a
+                JOIN dgg_topology t ON a.dggid = t.dggid
+                WHERE a.dataset_id = :dataset_a
+                AND t.parent_dggid IS NOT NULL
+                GROUP BY t.parent_dggid
+            """), {"new_id": new_id, "dataset_a": dataset_a})
+
+        elif request.type == "propagate":
+            # Propagate: Iterative Buffer with CONDITION (Simple Flood Fill)
+            # Use a slightly different CTE that includes a check on the *neighbor's* value?
+            # Actually, "Propagate" usually means spreading from source *through* a "friction" or "mask" dataset.
+            # But here we might just do "Spread N steps" which is Buffer.
+            # Let's implement "Constrained Buffer": Expand only into cells that exist in Dataset B (Mask)
+            # Or if Dataset B is not provided, expand everywhere (Buffer).
+            
+            # Implementation:
+            # If dataset_b is provided: Only include neighbor dggid IF it exists in dataset_b (AND optionally satisfy criteria?)
+            # Simplified: Intersection of (Buffer A) and B
+            # But iterative: Step 1: A.neighbors n B. Step 2: (Result1).neighbors n B ...
+            
+            iterations = request.limit if request.limit else 5
+            iterations = min(iterations, 20)
+            
+            if dataset_b:
+                # Constrained propagation
+                await db.execute(text("""
+                    WITH RECURSIVE spread AS (
+                        SELECT dggid, 0 as depth FROM cell_objects WHERE dataset_id = :dataset_a
+                        UNION
+                        SELECT t.neighbor_dggid, s.depth + 1
+                        FROM spread s
+                        JOIN dgg_topology t ON s.dggid = t.dggid
+                        JOIN cell_objects mask ON t.neighbor_dggid = mask.dggid AND mask.dataset_id = :dataset_b
+                        WHERE s.depth < :iterations
+                    )
+                    INSERT INTO cell_objects (dataset_id, dggid, tid, attr_key, value_num, value_text, value_json)
+                    SELECT DISTINCT CAST(:new_id AS UUID), s.dggid, 0, 'propagate', CAST(NULL AS FLOAT), 'Spread', CAST(NULL AS JSONB)
+                    FROM spread s
+                """), {"new_id": new_id, "dataset_a": dataset_a, "dataset_b": dataset_b, "iterations": iterations})
+            else:
+                 # Just Buffer if no mask
+                 await db.execute(text("""
+                    WITH RECURSIVE bfs AS (
+                        SELECT dggid, 0 as depth FROM cell_objects WHERE dataset_id = :dataset_a
+                        UNION
+                        SELECT t.neighbor_dggid, bfs.depth + 1
+                        FROM bfs
+                        JOIN dgg_topology t ON bfs.dggid = t.dggid
+                        WHERE bfs.depth < :iterations
+                    )
+                    INSERT INTO cell_objects (dataset_id, dggid, tid, attr_key, value_num, value_text, value_json)
+                    SELECT DISTINCT CAST(:new_id AS UUID), b.dggid, 0, 'buffer', CAST(NULL AS FLOAT), 'Buffer', CAST(NULL AS JSONB)
+                    FROM bfs b
+                """), {"new_id": new_id, "dataset_a": dataset_a, "iterations": iterations})
 
         # Update status
         new_dataset.status = "ready"

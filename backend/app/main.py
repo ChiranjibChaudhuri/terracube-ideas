@@ -15,18 +15,8 @@ async def lifespan(app: FastAPI):
     await init_db()
     await seed_admin()
     
-    # Load real global data from Natural Earth (optional)
-    if settings.LOAD_REAL_DATA:
-        logger = logging.getLogger("uvicorn.error")
-        from app.db import AsyncSessionLocal
-        from app.services.real_data_loader import load_real_global_data
-        from app.services.data_loader import load_initial_data
-        try:
-            async with AsyncSessionLocal() as session:
-                await load_real_global_data(session)
-                await load_initial_data(session)  # Also load demo raster datasets
-        except Exception as exc:
-            logger.warning(f"Skipping data load: {exc}")
+    # Data loading moved to external 'data-init' service
+    # See app/scripts/init_data.py
         
     yield
     # Shutdown (close DB pool if needed, handled globally but good practice)

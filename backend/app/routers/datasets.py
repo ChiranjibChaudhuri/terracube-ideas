@@ -28,7 +28,7 @@ def serialize_dataset(dataset: Dataset):
         "created_at": dataset.created_at.isoformat() if dataset.created_at else None,
     }
 
-@router.get("/")
+@router.get("")
 async def list_datasets(search: Optional[str] = None, db: AsyncSession = Depends(get_db)):
     stmt = select(Dataset)
     if search:
@@ -51,7 +51,7 @@ async def get_dataset(dataset_id: str, db: AsyncSession = Depends(get_db)):
         raise HTTPException(status_code=404, detail="Dataset not found")
     return {"dataset": serialize_dataset(dataset)}
 
-@router.post("/")
+@router.post("")
 async def create_dataset(
     name: str = Form(...), 
     description: str = Form(None),

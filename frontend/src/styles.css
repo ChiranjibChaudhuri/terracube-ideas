@@ -845,16 +845,27 @@ button {
 }
 
 .layer-item__color {
-  width: 20px;
-  height: 20px;
-  border-radius: 50%;
-  border: 2px solid rgba(255, 255, 255, 0.3);
-  cursor: pointer;
-  transition: transform 0.15s ease;
+  width: 24px;
+  height: 24px;
+  border-radius: 4px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  cursor: default;
+  flex-shrink: 0;
 }
 
-.layer-item__color:hover {
-  transform: scale(1.15);
+.layer-item__ramp-select {
+  background: #2a2a2a;
+  color: #e0e0e0;
+  border: 1px solid #444;
+  border-radius: 4px;
+  padding: 2px 4px;
+  font-size: 11px;
+  max-width: 100px;
+  cursor: pointer;
+}
+
+.layer-item__ramp-select:hover {
+  border-color: #666;
 }
 
 /* Additional Toolbox Styles */
@@ -1099,6 +1110,26 @@ button {
   margin-top: auto;
   padding-top: 1rem;
   border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.sidebar-attribution {
+  font-size: 0.75rem;
+  color: rgba(244, 241, 234, 0.5);
+  margin-bottom: 0.8rem;
+  text-align: center;
+}
+
+.sidebar-attribution a {
+  color: inherit;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  opacity: 0.8;
+  transition: opacity 0.2s;
+}
+
+.sidebar-attribution a:hover {
+  opacity: 1;
+  color: var(--sea-500);
 }
 
 .sidebar-footer .button-secondary {

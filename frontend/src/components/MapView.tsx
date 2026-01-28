@@ -99,9 +99,22 @@ const getInterpolator = (rampName?: string) => {
 
 const clampLat = (lat: number) => Math.max(-85, Math.min(85, lat));
 
+const getGlobeVisibleBounds = (viewState: MapViewState): GeoExtent => {
+  const { latitude = 0, longitude = 0, zoom = 1 } = viewState;
+  const span = 360 / Math.pow(2, Math.max(0, zoom - 1.5));
+  const halfSpan = span / 2;
+  return {
+    ll: { lat: Math.max(-85, latitude - halfSpan), lon: longitude - halfSpan },
+    ur: { lat: Math.min(85, latitude + halfSpan), lon: longitude + halfSpan },
+  };
+};
+
 const buildExtent = (viewState: MapViewState, width: number, height: number, useGlobe: boolean): GeoExtent => {
-  // For globe view, return full world extent since WebMercatorViewport doesn't work for 3D globe
+  // For globe view, use adaptive bounds if zoomed in
   if (useGlobe) {
+    if ((viewState.zoom ?? 0) > 3) {
+      return getGlobeVisibleBounds(viewState);
+    }
     return {
       ll: { lat: -85, lon: -180 },
       ur: { lat: 85, lon: 180 },
@@ -224,15 +237,15 @@ const MapView = ({
 
     // For globe view, limit resolution to avoid overwhelming the browser with too many zones
     const effectiveMinLevel = useGlobe ? Math.max(levelClamp?.min ?? 0, 1) : levelClamp?.min;
-    const effectiveMaxLevel = useGlobe ? Math.min(levelClamp?.max ?? 6, 4) : levelClamp?.max;
+    const effectiveMaxLevel = useGlobe ? Math.min(levelClamp?.max ?? 10, 10) : levelClamp?.max;
 
     // Calculate level based on zoom or use override
-    // Formula: level = floor(zoom/2) + 1 (user requested parity with modern GIS)
-    // Zoom 0-1.99 → L1, 2-3.99 → L2, 4-5.99 → L3, 6-7.99 → L4, 8-9.99 → L5, 10-11.99 → L6
+    // Formula: level = floor(zoom) (1:1 mapping as requested)
+    // Zoom 1 → L1, Zoom 10 → L10
     let targetLevel = levelOverride ?? 1;
     if (!levelOverride) {
       const zoomLevel = viewState.zoom ?? 0;
-      targetLevel = Math.floor(zoomLevel / 2) + 1;
+      targetLevel = Math.max(1, Math.floor(zoomLevel));
     }
     // Clamp to dataset limits
     if (effectiveMinLevel !== undefined) targetLevel = Math.max(effectiveMinLevel, targetLevel);
@@ -474,10 +487,11 @@ const MapView = ({
       new PolygonLayer<PolygonRecord>({
         id: 'dggs-polygons',
         data: dataToRender,
+        opacity: styleOpacity,
         getPolygon: (d) => d.polygon,
         getFillColor: (d) => {
           if (layerStyle?.color) {
-            return [...layerStyle.color, Math.round((layerStyle.opacity ?? 0.6) * 255)] as Color;
+            return [...layerStyle.color, 255] as Color;
           }
           // Use value-based coloring with dataset min/max
           const val = d.cell.value_num;
@@ -486,10 +500,9 @@ const MapView = ({
           }
           const colorStr = colorScale(val);
           const parsed = rgb(colorStr);
-          // Apply opacity to the result
-          return [parsed.r, parsed.g, parsed.b, Math.round(255 * styleOpacity)] as Color;
+          return [parsed.r, parsed.g, parsed.b, 255] as Color;
         },
-        getLineColor: [255, 255, 255, Math.round(80 * styleOpacity)],
+        getLineColor: [255, 255, 255, 80],
         lineWidthMinPixels: 1,
         pickable: true,
         autoHighlight: true,

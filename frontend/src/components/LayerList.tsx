@@ -35,39 +35,6 @@ export const LayerList = () => {
                             />
                             <span>Visible</span>
                         </label>
-
-                        <div className="layer-item__opacity">
-                            <span>Opacity</span>
-                            <input
-                                type="range"
-                                min="0"
-                                max="1"
-                                step="0.1"
-                                value={layer.opacity}
-                                onChange={(e) => updateLayer(layer.id, { opacity: parseFloat(e.target.value) })}
-                            />
-                        </div>
-
-                        <div
-                            className="layer-item__color"
-                            style={{
-                                background: layer.color
-                                    ? `rgb(${layer.color.join(',')})`
-                                    : 'linear-gradient(135deg, #440154, #21918c, #fde725)'  // Viridis gradient
-                            }}
-                            onClick={() => {
-                                // Toggle between value-based (undefined) and solid color
-                                if (layer.color) {
-                                    updateLayer(layer.id, { color: undefined });
-                                } else {
-                                    const r = Math.floor(Math.random() * 255);
-                                    const g = Math.floor(Math.random() * 255);
-                                    const b = Math.floor(Math.random() * 255);
-                                    updateLayer(layer.id, { color: [r, g, b] });
-                                }
-                            }}
-                            title={layer.color ? "Click for value-based coloring" : "Value-based coloring (click for solid)"}
-                        />
                     </div>
                 </div>
             ))}

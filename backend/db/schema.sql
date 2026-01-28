@@ -66,3 +66,13 @@ CREATE TABLE IF NOT EXISTS uploads (
 );
 
 CREATE INDEX IF NOT EXISTS idx_uploads_status ON uploads (status);
+
+CREATE TABLE IF NOT EXISTS dgg_topology (
+  dggid text NOT NULL,
+  neighbor_dggid text NOT NULL,
+  parent_dggid text,
+  level integer,
+  PRIMARY KEY (dggid, neighbor_dggid)
+);
+CREATE INDEX IF NOT EXISTS idx_dgg_topology_dggid ON dgg_topology (dggid);
+CREATE INDEX IF NOT EXISTS idx_dgg_topology_parent ON dgg_topology (parent_dggid);

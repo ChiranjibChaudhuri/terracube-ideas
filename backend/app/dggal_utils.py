@@ -126,6 +126,21 @@ class DggalService:
                 current_level = self.dggrs.getZoneLevel(current)
             
             return self.dggrs.getZoneTextID(current)
+            
+    def get_zone_at_point(self, lat: float, lon: float, level: int) -> Optional[str]:
+        """Get the DGGS zone identifier for a specific geographic point at a given resolution level."""
+        with self._lock:
+            # Use a tiny epsilon to create a point extent
+            epsilon = 1e-7
+            extent = GeoExtent()
+            extent.ll = GeoPoint(lat=lat - epsilon, lon=lon - epsilon)
+            extent.ur = GeoPoint(lat=lat + epsilon, lon=lon + epsilon)
+            
+            zones = self.dggrs.listZones(level, extent)
+            if not zones:
+                return None
+            # Return the first zone found (usually there's only one for a point)
+            return self.dggrs.getZoneTextID(zones[0])
 
 @lru_cache
 def get_dggal_service(system_name: str = "IVEA3H") -> DggalService:
