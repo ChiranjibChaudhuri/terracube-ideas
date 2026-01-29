@@ -77,7 +77,7 @@ export const ToolboxPanel: React.FC = () => {
         return Number.isInteger(rounded) ? String(rounded) : String(rounded);
     };
 
-    const rampGradient = COLOR_RAMPS[colorRamp] ?? COLOR_RAMPS.viridis;
+    const rampGradient = (COLOR_RAMPS[colorRamp] ?? COLOR_RAMPS.viridis).replace('to top', 'to right');
 
     // Handle tool execution
     const handleToolExecute = async (toolId: string, params: Record<string, any>) => {
