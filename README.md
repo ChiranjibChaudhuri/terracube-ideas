@@ -123,4 +123,7 @@ The browser loads DGGAL WASM assets from `frontend/public/dggal`:
 - `dggal.js` (JS wrapper)
 - `libdggal.js` + `libdggal_c_fn.js.0.0.wasm` (runtime)
 
-These are sourced from the DGGAL project and bundled locally for offline use.
+
+## License
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
