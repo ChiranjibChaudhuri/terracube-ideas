@@ -21,3 +21,5 @@ Requires-Dist: redis>=5.0.1
 Requires-Dist: sqlalchemy>=2.0.30
 Requires-Dist: prometheus-fastapi-instrumentator>=7.0.0
 Requires-Dist: shapely>=2.0.0
+Requires-Dist: requests>=2.31.0
+Requires-Dist: fiona>=1.9.0

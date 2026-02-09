@@ -176,6 +176,17 @@ const DashboardPage = () => {
             )}
           </div>
 
+          {/* Apps */}
+          <div className="section">
+            <div className="section-header">
+              <span className="section-title">Apps</span>
+            </div>
+            <div className="section-content">
+                <button className="button-secondary" style={{width: '100%', marginBottom: '5px', padding: '8px'}} onClick={() => window.location.href='/workbench'}>Workbench</button>
+                <button className="button-secondary" style={{width: '100%', padding: '8px'}} onClick={() => window.location.href='/high-vibes'}>High Vibes</button>
+            </div>
+          </div>
+
           {/* Team (collapsed by default) */}
           <div className="section">
             <div className="section-header" onClick={() => toggleSection('team')}>

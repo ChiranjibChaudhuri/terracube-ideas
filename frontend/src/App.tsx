@@ -3,6 +3,7 @@ import LandingPage from './pages/LandingPage';
 import LoginPage from './pages/LoginPage';
 import DashboardPage from './pages/DashboardPage';
 import Workbench from './pages/Workbench';
+import HighVibe from './pages/HighVibe';
 import ErrorBoundary from './components/ErrorBoundary';
 
 const RequireAuth = ({ children }: { children: JSX.Element }) => {
@@ -24,6 +25,14 @@ const App = () => {
           element={
             <RequireAuth>
               <DashboardPage />
+            </RequireAuth>
+          }
+        />
+        <Route
+          path="/high-vibes"
+          element={
+            <RequireAuth>
+              <HighVibe />
             </RequireAuth>
           }
         />

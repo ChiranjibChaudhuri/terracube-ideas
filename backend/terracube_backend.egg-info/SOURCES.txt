@@ -13,4 +13,9 @@ terracube_backend.egg-info/SOURCES.txt
 terracube_backend.egg-info/dependency_links.txt
 terracube_backend.egg-info/requires.txt
 terracube_backend.egg-info/top_level.txt
+tests/test_chaos.py
+tests/test_multi_res_loader.py
+tests/test_spatial_ops_db.py
+tests/test_spatial_ops_topology.py
 tests/test_toolbox_integration.py
+tests/test_vector_ingest.py

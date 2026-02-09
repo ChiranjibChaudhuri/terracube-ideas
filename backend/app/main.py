@@ -42,13 +42,14 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-from app.routers import auth, topology, datasets, uploads, analytics, toolbox, stats, ops
+from app.routers import auth, topology, datasets, uploads, analytics, toolbox, stats, ops, high_vibe
 
 # ...
 
 app.include_router(auth.router)
 app.include_router(topology.router)
 app.include_router(ops.router)
+app.include_router(high_vibe.router)
 app.include_router(datasets.router)
 app.include_router(uploads.router)
 app.include_router(analytics.router)

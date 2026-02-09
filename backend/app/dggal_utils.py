@@ -142,6 +142,16 @@ class DggalService:
             # Return the first zone found (usually there's only one for a point)
             return self.dggrs.getZoneTextID(zones[0])
 
+    def get_subzones(self, dggid: str, relative_depth: int) -> List[str]:
+        with self._lock:
+            zone = self._zone_from_text(dggid)
+            if zone is None:
+                return []
+            subzones = self.dggrs.getSubZones(zone, relative_depth)
+            if not subzones:
+                return []
+            return [self.dggrs.getZoneTextID(sz) for sz in subzones]
+
 @lru_cache
 def get_dggal_service(system_name: str = "IVEA3H") -> DggalService:
     return DggalService(system_name)
