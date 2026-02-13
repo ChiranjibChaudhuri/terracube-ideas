@@ -4,6 +4,8 @@ import { DatasetSearch } from '../components/DatasetSearch';
 import { LayerList } from '../components/LayerList';
 import { ToolboxPanel } from '../components/ToolboxPanel';
 import { MapInfoBar } from '../components/MapInfoBar';
+import { ToastContainer } from '../components/Toast';
+import { useToast } from '../components/Toast';
 import { ScaleBar } from '../components/ScaleBar';
 import { ColorLegend } from '../components/ColorLegend';
 import { logout } from '../lib/api';
@@ -40,6 +42,7 @@ type MapStats = {
 
 const DashboardPage = () => {
   const { layers, addLayer, updateLayer } = useAppStore();
+  const { messages } = useToast();
   const [selectedDataset, setSelectedDataset] = useState<Dataset | null>(null);
   const [mapMode, setMapMode] = useState<'viewport' | 'operation'>('viewport');
   const [mapStats, setMapStats] = useState<MapStats>({ zoneCount: 0, cellCount: 0 });
@@ -140,6 +143,7 @@ const DashboardPage = () => {
 
   return (
     <div className="page dashboard">
+      <ToastContainer messages={messages} onRemove={() => {}} />
       <div className="dashboard-shell">
         <aside className="sidebar">
           {/* Header */}
