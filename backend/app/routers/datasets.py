@@ -147,3 +147,132 @@ async def lookup_cells(
     stmt = stmt.order_by(CellObject.dggid)
     result = await db.execute(stmt)
     return {"cells": [dict(row) for row in result.mappings().all()]}
+
+class ExportRequest(BaseModel):
+    format: str  # "csv" or "geojson"
+    bbox: Optional[List[float]] = None  # Optional bounding box filter
+
+@router.post("/{dataset_id}/export")
+async def export_dataset(
+    dataset_id: str,
+    request: ExportRequest,
+    db: AsyncSession = Depends(get_db),
+    user: dict = Depends(get_current_user)
+):
+    """
+    Export a dataset as CSV or GeoJSON.
+    Returns a file download response.
+    """
+    from fastapi.responses import Response, StreamingResponse
+    import csv
+    import json
+    import io
+
+    try:
+        dataset_uuid = uuid.UUID(dataset_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid dataset ID")
+
+    # Verify dataset exists
+    dataset_repo = DatasetRepository(db)
+    dataset = await dataset_repo.get_by_id(dataset_uuid)
+    if not dataset:
+        raise HTTPException(status_code=404, detail="Dataset not found")
+
+    # Query cells
+    stmt = select(
+        CellObject.dggid,
+        CellObject.tid,
+        CellObject.attr_key,
+        CellObject.value_text,
+        CellObject.value_num,
+        CellObject.value_json,
+    ).where(CellObject.dataset_id == dataset_uuid)
+
+    if request.bbox and len(request.bbox) == 4:
+        # Filter by bbox if provided (requires vertices lookup)
+        # For now, just get all cells - bbox filtering would need dggal integration
+        pass
+
+    result = await db.execute(stmt)
+    cells = [dict(row) for row in result.mappings().all()]
+
+    if not cells:
+        raise HTTPException(status_code=404, detail="No cells found in dataset")
+
+    if request.format.lower() == "csv":
+        # Export as CSV
+        output = io.StringIO()
+        writer = csv.writer(output)
+        writer.writerow(["dggid", "tid", "attr_key", "value_text", "value_num", "value_json"])
+
+        for cell in cells:
+            writer.writerow([
+                cell.get("dggid", ""),
+                cell.get("tid", ""),
+                cell.get("attr_key", ""),
+                cell.get("value_text", ""),
+                cell.get("value_num", ""),
+                json.dumps(cell.get("value_json")) if cell.get("value_json") else ""
+            ])
+
+        return Response(
+            content=output.getvalue(),
+            media_type="text/csv",
+            headers={
+                "Content-Disposition": f'attachment; filename="{dataset.name}_{dataset_id}.csv"'
+            }
+        )
+
+    elif request.format.lower() == "geojson":
+        # Export as GeoJSON (requires DGGAL for vertices)
+        # For now, export point-based GeoJSON using centroids
+        from app.dggal_utils import get_dggal_service
+
+        dggal = get_dggal_service(dataset.dggs_name or "IVEA3H")
+
+        features = []
+        for cell in cells:
+            dggid = cell.get("dggid")
+            if not dggid:
+                continue
+
+            # Get centroid as point geometry
+            centroid = dggal.get_centroid(dggid)
+
+            feature = {
+                "type": "Feature",
+                "geometry": {
+                    "type": "Point",
+                    "coordinates": [centroid["lon"], centroid["lat"]]
+                },
+                "properties": {
+                    "dggid": dggid,
+                    "tid": cell.get("tid"),
+                    "attr_key": cell.get("attr_key"),
+                    "value_text": cell.get("value_text"),
+                    "value_num": cell.get("value_num")
+                }
+            }
+
+            # Add value_json to properties if present
+            if cell.get("value_json"):
+                feature["properties"]["value_json"] = cell.get("value_json")
+
+            features.append(feature)
+
+        geojson = {
+            "type": "FeatureCollection",
+            "features": features
+        }
+
+        return Response(
+            content=json.dumps(geojson),
+            media_type="application/geo+json",
+            headers={
+                "Content-Disposition": f'attachment; filename="{dataset.name}_{dataset_id}.geojson"'
+            }
+        )
+
+    else:
+        raise HTTPException(status_code=400, detail="Unsupported export format. Use 'csv' or 'geojson'")

@@ -2,10 +2,13 @@ from contextlib import asynccontextmanager, suppress
 import asyncio
 import logging
 from pathlib import Path
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
+from slowapi import Limiter, _rate_limit_exceeded
+from slowapi.util import get_remote_address
+from slowapi.errors import RateLimitExceeded
 from app.config import settings
 from app.init_db import init_db
 from app.seed import seed_admin
@@ -34,6 +37,18 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="TerraCube IDEAS API", lifespan=lifespan)
 
+# Rate limiting
+limiter = Limiter(key_func=get_remote_address, default_limits=["200/minute"])
+app.state.limiter = limiter
+
+@app.exception_handler(RateLimitExceeded)
+async def rate_limit_handler(request: Request, exc: RateLimitExceeded):
+    from fastapi.responses import JSONResponse
+    return JSONResponse(
+        status_code=429,
+        content={"detail": "Rate limit exceeded. Please try again later.", "retry_after": 60}
+    )
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[settings.CORS_ORIGIN],
@@ -42,7 +57,20 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-from app.routers import auth, topology, datasets, uploads, analytics, toolbox, stats, ops
+# Apply rate limiting to all routes
+app.add_middleware(
+    limiter,
+    exempt_routes=[
+        "/api/health",
+        "/metrics",
+        "/docs",
+        "/openapi.json",
+        "/dggal",
+        "/assets"
+    ]
+)
+
+from app.routers import auth, topology, datasets, uploads, analytics, toolbox, stats, ops, upload_status
 
 # ...
 
@@ -54,6 +82,7 @@ app.include_router(uploads.router)
 app.include_router(analytics.router)
 app.include_router(toolbox.router)
 app.include_router(stats.router)
+app.include_router(upload_status.router)
 
 from prometheus_fastapi_instrumentator import Instrumentator
 Instrumentator().instrument(app).expose(app)

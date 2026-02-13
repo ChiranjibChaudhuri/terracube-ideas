@@ -23,7 +23,8 @@ dependencies = [
     "prometheus-fastapi-instrumentator>=7.0.0",
     "shapely>=2.0.0",
     "requests>=2.31.0",
-    "fiona>=1.9.0"
+    "fiona>=1.9.0",
+    "slowapi>=0.1.9"
 ]
 
 [tool.setuptools]
