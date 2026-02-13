@@ -5,7 +5,16 @@ from app.db import get_db
 from app.repositories.dataset_repo import DatasetRepository
 from app.models import Dataset, CellObject
 from app.auth import get_current_user, get_optional_user
-from pydantic import BaseModel
+from app.validators.datasets import (
+    DatasetCreateRequest,
+    DatasetUpdateRequest,
+    CellLookupRequest,
+    CellListRequest,
+    DatasetExportRequest,
+    SpatialOperationRequest,
+    ZonalStatsRequest,
+)
+from pydantic import BaseModel, ValidationError
 from typing import List, Optional
 import uuid
 
