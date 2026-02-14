@@ -76,13 +76,13 @@ async def upload_file(
         # The vector ingest service creates the dataset. We can just reserve the name here or let service handle it.
         # But to be consistent with API response, let's create it here.
         # Actually vector_ingest creates it. Let's create it here to return ID immediately.
-         created = await dataset_repo.create(
+        created = await dataset_repo.create(
             name=dataset_name.strip() or os.path.splitext(filename)[0],
             description=dataset_description.strip() or f"Vector import from {filename}",
             dggs_name=dggs_name,
             metadata_={"source_type": "vector_file", "source_file": filename}
         )
-         ds_uuid = created.id
+        ds_uuid = created.id
     
     else:
         # Standard Raster/CSV flow

@@ -1,10 +1,22 @@
-from sqlalchemy import Column, String, Integer, MetaData, ForeignKey, JSON, Double, DateTime, BigInteger
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy import Column, String, Integer, MetaData, ForeignKey, JSON, Double, DateTime, BigInteger, Text, Boolean
+from sqlalchemy.dialects.postgresql import UUID, ARRAY
 from sqlalchemy.orm import declarative_base, relationship
 from sqlalchemy.sql import func
 import uuid
+from enum import Enum
 
 Base = declarative_base()
+
+# Import annotation models
+from app.models_annotations import Annotation, CellAnnotation, AnnotationShare
+
+
+class UserRole(str, Enum):
+    """User roles for RBAC."""
+    ADMIN = "admin"      # Full system access
+    EDITOR = "editor"    # Can create/edit datasets
+    VIEWER = "viewer"    # Read-only access
+
 
 class User(Base):
     __tablename__ = "users"
@@ -12,7 +24,40 @@ class User(Base):
     email = Column(String, unique=True, nullable=False)
     password_hash = Column(String, nullable=False)
     name = Column(String)
+    role = Column(String, default="viewer", nullable=False)  # admin, editor, viewer
+    is_active = Column(Boolean, default=True, nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    def has_permission(self, permission: str) -> bool:
+        """Check if user has a specific permission based on role."""
+        permissions = {
+            "admin": [
+                "create_dataset", "edit_any_dataset", "delete_any_dataset",
+                "create_user", "edit_user", "delete_user",
+                "manage_system", "view_any_dataset",
+                "run_any_operation", "delete_any_operation",
+            ],
+            "editor": [
+                "create_dataset", "edit_own_dataset", "delete_own_dataset",
+                "view_any_dataset", "run_any_operation",
+            ],
+            "viewer": [
+                "view_own_dataset", "view_any_dataset",
+            ],
+        }
+        return permission in permissions.get(self.role, [])
+
+    def can_edit_dataset(self, dataset: 'Dataset') -> bool:
+        """Check if user can edit a dataset."""
+        if self.role == "admin":
+            return True
+        return self.role in ["editor"] and dataset.created_by == self.id
+
+    def can_delete_dataset(self, dataset: 'Dataset') -> bool:
+        """Check if user can delete a dataset."""
+        if self.role == "admin":
+            return True
+        return self.role in ["editor"] and dataset.created_by == self.id
 
 class Dataset(Base):
     __tablename__ = "datasets"
@@ -24,6 +69,10 @@ class Dataset(Base):
     created_by = Column(UUID(as_uuid=True), ForeignKey("users.id"))
     status = Column(String, default="active")
     metadata_ = Column("metadata", JSON, default={})
+    # Visibility: private (only creator), shared (specific users), public (everyone)
+    visibility = Column(String, default="private", nullable=False)
+    # List of user IDs who have explicit access (for shared visibility)
+    shared_with = Column(ARRAY(UUID(as_uuid=True)), default=[])
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
 class Upload(Base):

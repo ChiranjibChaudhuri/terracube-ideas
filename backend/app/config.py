@@ -6,7 +6,15 @@ class Settings(BaseSettings):
     DATABASE_URL: str
     JWT_SECRET: str
     CORS_ORIGIN: str = "http://localhost:5173"
-    
+
+    # Environment
+    ENVIRONMENT: str = "development"  # development, staging, production
+
+    # Database
+    DB_STATEMENT_TIMEOUT: int = 30  # Seconds before long-running query is cancelled
+    DB_POOL_SIZE: int = 10
+    DB_MAX_OVERFLOW: int = 20
+
     # Redis
     REDIS_HOST: str = "localhost"
     REDIS_PORT: int = 6379
@@ -17,7 +25,7 @@ class Settings(BaseSettings):
     MINIO_ACCESS_KEY: str = "minioadmin"
     MINIO_SECRET_KEY: str = "minioadmin"
     MINIO_BUCKET: str = "ideas-staging"
-    
+
     # Admin
     ADMIN_EMAIL: str = "admin@terracube.geo"
     ADMIN_PASSWORD: str = "admin123"

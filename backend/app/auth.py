@@ -8,6 +8,7 @@ from app.config import settings
 
 # JWT token expiry duration (configurable via settings)
 ACCESS_TOKEN_EXPIRE_MINUTES = 60
+REFRESH_TOKEN_EXPIRE_DAYS = 30
 
 # Security scheme for Swagger UI
 security = HTTPBearer(auto_error=False)
@@ -22,12 +23,26 @@ def get_password_hash(password: str) -> str:
     return bcrypt.hashpw(password.encode('utf-8'), salt).decode('utf-8')
 
 
-def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
+def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:
+    """Create a short-lived JWT access token."""
     to_encode = data.copy()
+    # Mark as access token
+    to_encode["type"] = "access"
     if expires_delta:
         expire = datetime.now(timezone.utc) + expires_delta
     else:
         expire = datetime.now(timezone.utc) + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+    to_encode.update({"exp": expire})
+    encoded_jwt = jwt.encode(to_encode, settings.JWT_SECRET, algorithm="HS256")
+    return encoded_jwt
+
+
+def create_refresh_token(data: dict) -> str:
+    """Create a long-lived JWT refresh token."""
+    to_encode = data.copy()
+    # Mark as refresh token
+    to_encode["type"] = "refresh"
+    expire = datetime.now(timezone.utc) + timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS)
     to_encode.update({"exp": expire})
     encoded_jwt = jwt.encode(to_encode, settings.JWT_SECRET, algorithm="HS256")
     return encoded_jwt
@@ -58,28 +73,28 @@ async def get_current_user(
             detail="Authentication required",
             headers={"WWW-Authenticate": "Bearer"},
         )
-    
+
     token = credentials.credentials
     payload = decode_token(token)
-    
+
     if payload is None:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid or expired token",
             headers={"WWW-Authenticate": "Bearer"},
         )
-    
+
     # Extract user info from token payload
     user_id = payload.get("sub")
     email = payload.get("email")
-    
+
     if not user_id:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid token payload",
             headers={"WWW-Authenticate": "Bearer"},
         )
-    
+
     return {"id": user_id, "email": email}
 
 
@@ -92,17 +107,17 @@ async def get_optional_user(
     """
     if credentials is None:
         return None
-    
+
     token = credentials.credentials
     payload = decode_token(token)
-    
+
     if payload is None:
         return None
-    
+
     user_id = payload.get("sub")
     email = payload.get("email")
-    
+
     if not user_id:
         return None
-    
+
     return {"id": user_id, "email": email}

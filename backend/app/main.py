@@ -14,22 +14,81 @@ from app.config import settings
 from app.init_db import init_db
 from app.seed import seed_admin
 from app.services.result_cleanup import run_result_cleanup_loop
+from app.exceptions import setup_global_handlers, RequestIdMiddleware, validate_settings
+from app.logging_config import setup_logging, RequestLoggingMiddleware, log_performance
+
+logger = logging.getLogger(__name__)
+
+# Set up structured logging
+setup_logging()
+
+logger = logging.getLogger(__name__)
+
+
+async def validate_settings():
+    """
+    Validate required settings at startup.
+    Fail fast if critical configuration is missing.
+    """
+    errors = []
+
+    # Check database URL
+    if not settings.DATABASE_URL or "postgresql://" not in settings.DATABASE_URL:
+        errors.append("DATABASE_URL must be set to a valid PostgreSQL connection string")
+
+    # Check JWT secret
+    if not settings.JWT_SECRET or len(settings.JWT_SECRET) < 32:
+        errors.append("JWT_SECRET must be set and at least 32 characters")
+
+    # Check CORS origin in production
+    if settings.CORS_ORIGIN == "*":
+        logger.warning("CORS_ORIGIN is set to wildcard (*) - this is insecure for production")
+
+    # Check MinIO settings
+    if not settings.MINIO_ENDPOINT or not settings.MINIO_PORT:
+        errors.append("MinIO settings (MINIO_ENDPOINT, MINIO_PORT) must be configured")
+
+    # Check upload directory
+    upload_dir = Path(settings.UPLOAD_DIR)
+    if not upload_dir.exists():
+        try:
+            upload_dir.mkdir(parents=True, exist_ok=True)
+            logger.info(f"Created upload directory: {upload_dir}")
+        except Exception as e:
+            errors.append(f"Cannot create upload directory: {e}")
+
+    if errors:
+        error_msg = "Configuration validation failed:\n" + "\n".join(f"  - {e}" for e in errors)
+        logger.critical(error_msg)
+        raise RuntimeError(error_msg)
+
+    logger.info("Configuration validation passed")
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup
+    logger.info("Starting TerraCube IDEAS API...")
+    # Store settings in app state for access in exception handlers
+    app.state.settings = settings
+    await validate_settings()
     await init_db()
     await seed_admin()
 
+    # Start result cleanup task
     cleanup_task = asyncio.create_task(
         run_result_cleanup_loop(settings.RESULT_TTL_HOURS, settings.RESULT_CLEANUP_INTERVAL_MINUTES)
     )
-    
+
     # Data loading moved to external 'data-init' service
     # See app/scripts/init_data.py
-        
+
+    logger.info("Startup complete. Server ready.")
+
     yield
-    # Shutdown (close DB pool if needed, handled globally but good practice)
+
+    # Shutdown
+    logger.info("Shutting down...")
     cleanup_task.cancel()
     with suppress(asyncio.CancelledError):
         await cleanup_task
@@ -38,52 +97,22 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="TerraCube IDEAS API", lifespan=lifespan)
 
-# Rate limiting
-limiter = Limiter(key_func=get_remote_address, default_limits=["200/minute"])
+# Setup global exception handlers before other middleware
+setup_global_handlers(app)
+
+# Add request ID middleware for tracing
+app.add_middleware(RequestIdMiddleware)
+
+# Add request logging middleware (configured via ENVIRONMENT)
+request_logger = RequestLoggingMiddleware(app, enabled=settings.ENVIRONMENT != "development")
+app.add_middleware(request_logger)
+
+# Rate limiting (updated to use per-user limiting)
+from app.rate_limiter import get_per_user_limiter
+limiter = get_per_user_limiter()
 app.state.limiter = limiter
 
-@app.exception_handler(RateLimitExceeded)
-async def rate_limit_handler(request: Request, exc: RateLimitExceeded):
-    from fastapi.responses import JSONResponse
-    return JSONResponse(
-        status_code=429,
-        content={"detail": "Rate limit exceeded. Please try again later.", "retry_after": 60}
-    )
-
-@app.exception_handler(ValidationError)
-async def validation_error_handler(request: Request, exc: ValidationError):
-    """Handle Pydantic validation errors with user-friendly messages."""
-    errors = []
-    for error in exc.errors():
-        field = " -> ".join(str(loc) for loc in error["loc"] if loc != "body")
-        message = error["msg"]
-        errors.append({
-            "field": field,
-            "message": message
-        })
-    return JSONResponse(
-        status_code=422,
-        content={"detail": "Validation failed", "errors": errors}
-    )
-
-@app.exception_handler(HTTPException)
-async def http_exception_handler(request: Request, exc: HTTPException):
-    """Handle HTTP exceptions with consistent error response."""
-    return JSONResponse(
-        status_code=exc.status_code,
-        content={"detail": exc.detail}
-    )
-
-@app.exception_handler(Exception)
-async def general_exception_handler(request: Request, exc: Exception):
-    """Handle all other exceptions gracefully."""
-    import traceback as tb
-    logger.error(f"Unhandled exception: {exc}", exc_info=True)
-    return JSONResponse(
-        status_code=500,
-        content={"detail": "Internal server error"}
-    )
-
+# CORS middleware
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[settings.CORS_ORIGIN],
@@ -101,14 +130,23 @@ app.add_middleware(
         "/docs",
         "/openapi.json",
         "/dggal",
-        "/assets"
+        "/assets",
+        "/api/auth/login",  # Allow login
+        "/api/auth/register"  # Allow registration
     ]
 )
 
-from app.routers import auth, topology, datasets, uploads, analytics, toolbox, stats, ops, upload_status
+from app.routers import (
+    auth, topology, datasets, uploads, analytics, toolbox,
+    stats, ops, upload_status,
+    stats_enhanced,  # Enhanced zonal statistics
+    annotations,       # Collaborative annotations
+    prediction,        # ML predictions and fire spread
+    temporal,          # Temporal operations and CA
+    ogc                # OGC API Features
+)
 
-# ...
-
+# Register API routes
 app.include_router(auth.router)
 app.include_router(topology.router)
 app.include_router(ops.router)
@@ -118,21 +156,70 @@ app.include_router(analytics.router)
 app.include_router(toolbox.router)
 app.include_router(stats.router)
 app.include_router(upload_status.router)
+# New feature routers
+app.include_router(stats_enhanced.router)
+app.include_router(annotations.router)
+app.include_router(prediction.router)
+app.include_router(temporal.router)
+app.include_router(ogc.router)
 
 from prometheus_fastapi_instrumentator import Instrumentator
 Instrumentator().instrument(app).expose(app)
 
 @app.get("/api/health")
 async def health_check():
+    """
+    Basic health check endpoint.
+    Returns status of database and topology population.
+    """
     from app.db import AsyncSessionLocal
-    from sqlalchemy import text
+    from sqlalchemy import select, text
+
     try:
         async with AsyncSessionLocal() as session:
+            # Check database connection
             await session.execute(text("SELECT 1"))
-        return {"status": "ok", "database": "connected"}
+
+            # Check topology population
+            topo_result = await session.fetchrow("SELECT COUNT(*) FROM dgg_topology")
+            topo_count = topo_result[0] if topo_result else 0
+            is_populated = topo_count > 0
+
+            # Get data counts
+            ds_count = await session.fetchrow("SELECT COUNT(*) FROM datasets")
+            cell_count = await session.fetchrow("SELECT COUNT(*) FROM cell_objects")
+
+            return JSONResponse({
+                "status": "ok",
+                "database": "connected",
+                "topology_populated": is_populated,
+                "topology_rows": topo_count,
+                "datasets": ds_count[0] if ds_count else 0,
+                "cells": cell_count[0] if cell_count else 0
+            })
     except Exception as e:
-        from fastapi.responses import JSONResponse
-        return JSONResponse(status_code=503, content={"status": "unhealthy", "error": str(e)})
+        logger.error(f"Health check failed: {e}")
+        return JSONResponse(
+            status_code=503,
+            content={"status": "unhealthy", "error": str(e)}
+        )
+
+
+@app.get("/api/health/db")
+async def database_health():
+    """
+    Detailed database health check.
+    Returns connection pool metrics and database status.
+    """
+    from app.db import get_db_health
+
+    health = await get_db_health()
+
+    status_code = 200 if health["status"] == "healthy" else 503
+    return JSONResponse(
+        status_code=status_code,
+        content=health
+    )
 
 # Serve Frontend
 # Determine path to frontend/dist relative to this file
@@ -153,7 +240,7 @@ if frontend_dist.exists():
         # Allow API calls to pass through (and fail with 404 if not found)
         # Also exclude metrics or docs if needed, but docs is /docs by default
         if full_path.startswith("api") or full_path.startswith("metrics") or full_path.startswith("docs") or full_path.startswith("openapi.json"):
-             raise HTTPException(status_code=404, detail="Not Found")
+            raise HTTPException(status_code=404, detail="Not Found")
 
         # Check if a static file exists (e.g. favicon.svg, logo.svg)
         file_path = frontend_dist / full_path
@@ -162,6 +249,8 @@ if frontend_dist.exists():
 
         # Fallback to index.html for SPA routing
         return FileResponse(frontend_dist / "index.html")
+else:
+    logger.warning(f"Frontend dist not found at {frontend_dist}, API only mode")
 
 if __name__ == "__main__":
     import uvicorn

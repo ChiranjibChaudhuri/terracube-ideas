@@ -1,0 +1,32 @@
+[tool.pytest.ini_options]
+addopts =
+    -v
+    --cov=app
+    --cov-report=html
+    --cov-report=term-missing
+    --asyncio-mode=auto
+testpaths = tests
+python_files = tests
+python_functions =
+    asyncio_facor = auto
+
+[tool:coverage.run]
+source = [
+    "app",
+]
+omit = [
+    "*/tests/*",
+    "*/migrations/*",
+    "*/scripts/*",
+    "*/__pycache__/*",
+]
+
+[tool:coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "raise AssertionError",
+    "raise NotImplementedError",
+    "if __name__ == .__main__.:",
+    "if TYPE_CHECKING:",
+]

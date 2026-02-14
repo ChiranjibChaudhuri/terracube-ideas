@@ -44,9 +44,11 @@ async def list_datasets(search: Optional[str] = None, db: AsyncSession = Depends
     """
     stmt = select(Dataset)
     if search:
-        # Use parameterized query to prevent SQL injection
-        from sqlalchemy import literal
-        stmt = stmt.where(Dataset.name.ilike('%' + search + '%'))
+        # Use parameterized query with bind parameter to prevent SQL injection
+        # ilike() properly handles the pattern as a bound parameter
+        # Escape special SQL LIKE characters (% and _) to prevent wildcard injection
+        escaped_search = search.replace('%', '\\%').replace('_', '\\_')
+        stmt = stmt.where(Dataset.name.ilike('%' + escaped_search + '%'))
     stmt = stmt.order_by(Dataset.created_at.desc())
     result = await db.execute(stmt)
     datasets = [serialize_dataset(ds) for ds in result.scalars().all()]
