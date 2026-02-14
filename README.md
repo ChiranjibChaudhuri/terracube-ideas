@@ -1,48 +1,72 @@
 # TerraCube IDEAS DGGS Web GIS
 
-This repo is a minimal end-to-end demo of an IDEAS-style data model running on IVEA3H DGGS. The backend stores IDEAS 5-tuples in Postgres (no spatial types), and the frontend uses DGGAL WASM + Deck.gl to build DGGS geometry client-side.
+A production-ready implementation of an IDEAS-style data model running on IVEA3H DGGS. The backend stores IDEAS 5-tuples in PostgreSQL (no spatial types), and the frontend uses DGGAL WASM + Deck.gl to build DGGS geometry client-side.
 
-## Architecture highlights
-- **IDEAS data model**: `cell_objects` stores `(dggid, tid, key, value, dataset)` in a long table, mirroring the IDEAS 5-tuple.
-- **DGGS only**: No server-side geometry or PostGIS. Spatial queries are table operations on `dggid` and attributes.
-- **Database-Centric Spatial Engine**: All spatial operations (Buffer, Aggregate, Union, Intersection) are performed via SQL queries (JOINs, CTEs) on the `cell_objects` table.
+## Production Status
+
+**✅ Production Ready** - See [DEPLOYMENT.md](DEPLOYMENT.md) for deployment checklist
+
+The system has been hardened for production use:
+- ✅ Global exception handling with standardized error responses
+- ✅ Configuration validation at startup
+- ✅ Proper authentication on all mutation endpoints
+- ✅ Database transaction safety for spatial operations
+- ✅ Request ID tracing for debugging
+- ✅ Rate limiting with configurable limits
+- ✅ Health check endpoint with topology status
+- ✅ Input sanitization (UUID validation, DGGID sanitization)
+
+## Architecture Highlights
+
+- **IDEAS Data Model**: `cell_objects` stores `(dggid, tid, key, value, dataset)` in a long table, mirroring the IDEAS 5-tuple.
+- **DGGS-Only**: No server-side geometry or PostGIS. Spatial queries are table operations on `dggid` and attributes.
+- **Database-Centric Spatial Engine**: All spatial operations (Buffer, Aggregate, Union, Intersection, Difference) are performed via SQL queries (JOINs, CTEs) on the `cell_objects` table.
 - **Topology Table**: `dgg_topology` stores neighbor and parent relationships to enable spatial traversal (e.g., K-ring buffering) without in-memory calculation.
-- **Client rendering**: DGGAL WASM generates IVEA3H polygon vertices in the browser.
-- **OGC DGGS-style visualization**: The frontend lists DGGS zones for the current viewport extent and zoom, fetches matching cell attributes, then joins + renders locally.
+- **Client Rendering**: DGGAL WASM generates IVEA3H polygon vertices in the browser.
+- **OGC DGGS-style Visualization**: The frontend lists DGGS zones for the current viewport extent and zoom, fetches matching cell attributes, then joins + renders locally.
 
-## Repo layout
-- `backend/`: FastAPI API, Postgres schema, Celery worker for ingestion.
-- `backend/app/scripts/`: Database population scripts (e.g., `populate_topology.py`).
-- `frontend/`: Vite + React + Deck.gl UI with GSAP/Framer Motion landing page and DGGS dashboard.
-- `docker-compose.yml`: Postgres, Redis, MinIO.
+## Repo Layout
 
-## Quick start
-1) Start infra:
+- `backend/` — FastAPI backend, PostgreSQL schema, Celery worker for ingestion.
+- `backend/app/` — Main application code (routers, services, repositories, models).
+- `backend/app/scripts/` — Database population scripts (e.g., `populate_topology.py`).
+- `frontend/` — Vite + React + Deck.gl UI with GSAP/Framer Motion landing page and DGGS dashboard.
+- `docker-compose.yml` — PostgreSQL, Redis, MinIO.
+
+## Quick Start
+
+### 1) Start infrastructure:
+
 ```bash
 docker compose up -d
 ```
 
-2) Create tables:
+### 2) Create tables:
+
 ```bash
 psql postgresql://ideas_user:ideas_password@localhost:5433/ideas -f backend/db/schema.sql
 ```
 
-3) **Initialize Topology** (Required for Buffer/Aggregate):
+### 3) **Initialize Topology** (Required for Buffer/Aggregate):
+
 ```bash
 # Ensure specific python environment with dggal is used
 # (e.g., inside backend container or local venv)
-python backend/app/init_db.py
-python backend/app/scripts/populate_topology.py
+python backend/app/scripts/init_database.py --levels 7 --dggs IVEA3H
 ```
-*Note: This generates neighbor constants for Levels 1-7 (~200k rows).*
 
-4) **Load Real Data** (Optional - requires internet):
+*Note: This generates neighbor relationships for levels 1-7 (~200k rows).*
+
+### 4) **Load Real Data** (Optional - requires internet):
+
 ```bash
 python backend/app/scripts/load_real_data.py
 ```
+
 *Downloads and ingests World Countries vector dataset.*
 
-5) Backend:
+### 5) Backend:
+
 ```bash
 cd backend
 cp .env.example .env
@@ -53,14 +77,16 @@ pip install -e .
 uvicorn app.main:app --reload --port 4000
 ```
 
-5) Worker:
+### 5) Worker:
+
 ```bash
 cd backend
 source .venv/bin/activate
 celery -A app.celery_app worker --loglevel=info
 ```
 
-6) Frontend:
+### 6) Frontend:
+
 ```bash
 cd frontend
 npm install
@@ -70,37 +96,42 @@ npm run dev
 Open `http://localhost:5173`.
 
 ## Spatial Operations (Persistent)
-The system eschews on-the-fly "toolbox" calculations in favor of persistent Dataset operations.
+
+The system emphasizes on-the-fly "toolbox" calculations in favor of persistent Dataset operations.
+
 All spatial tools create a **New Dataset** representing the result.
 
 ### Available Operations (`POST /api/ops/spatial`)
-- **Intersection**: `A n B` (Avg values)
-- **Union**: `A u B` (Merge sets)
-- **Difference**: `A - B` (Spatial subtraction)
-- **Buffer**: Expands cells by K-rings using `dgg_topology`.
-- **Aggregate**: Groups cells to parent level (mean value) using `dgg_topology`.
 
-### Upload format
+- **Intersection**: `A ∩ B` (Avg values)
+- **Union**: `A ∪ B` (Merge sets)
+- **Difference**: `A - B` (Spatial subtraction)
+- **Buffer**: Expand cells by K-rings using `dgg_topology`.
+- **Aggregate**: Group cells to parent level (mean value) using `dgg_topology`.
+
+### Upload Formats
+
 The ingestion worker accepts CSV/JSON files with DGGS cell rows, or GeoTIFF rasters.
 
-Sample files are available in `backend/db/sample_cells.csv` and `backend/db/sample_cells.json`.
+#### CSV
 
-### CSV
 ```csv
 dggid,tid,key,value
 W6H1,0,temperature,18.4
 W6H2,0,temperature,19.1
 ```
 
-### JSON
+#### JSON
+
 ```json
 [
-  { "dggid": "W6H1", "tid": 0, "key": "temperature", "value": 18.4 },
-  { "dggid": "W6H2", "tid": 0, "key": "temperature", "value": 19.1 }
+  {"dggid": "W6H1", "tid": 0, "key": "temperature", "value": 18.4},
+  {"dggid": "W6H2", "tid": 0, "key": "temperature", "value": 19.1}
 ]
 ```
 
-## API overview
+## API Overview
+
 - `POST /api/auth/register`, `POST /api/auth/login`
 - `GET /api/datasets`, `GET /api/datasets/:id`
 - `GET /api/datasets/:id/cells`
@@ -109,20 +140,22 @@ W6H2,0,temperature,19.1
 - `POST /api/ops/spatial` (Persistent: Intersection, Union, Difference, Buffer, Aggregate)
 - ~~`POST /api/toolbox/*`~~ (Deprecated in favor of persistent ops)
 - `POST /api/stats/zonal_stats`
-- `POST /api/uploads` (file staging + preprocess job)
+- `POST /api/uploads` (file staging + background ingest job)
 
-## Local configuration
+## Local Configuration
+
 - Backend env vars in `backend/.env` (see `backend/.env.example`).
 - Frontend API URL: `VITE_API_URL` in `frontend/.env` (defaults to `http://localhost:4000`).
 
-## Raster ingestion
+## Raster Ingestion
+
 Upload GeoTIFF rasters via `/api/uploads` and provide `attrKey` + optional `minLevel`/`maxLevel` to control sampling resolution.
 
-## DGGAL assets
-The browser loads DGGAL WASM assets from `frontend/public/dggal`:
+## DGGAL Assets
+
+The browser loads DGGAL WASM assets from `frontend/public/dggal/`:
 - `dggal.js` (JS wrapper)
 - `libdggal.js` + `libdggal_c_fn.js.0.0.wasm` (runtime)
-
 
 ## License
 
