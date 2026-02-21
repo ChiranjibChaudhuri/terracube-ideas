@@ -12,6 +12,7 @@ import uuid
 
 from app.models import User, Dataset, UserRole
 from app.auth import get_current_user
+from app.db import get_db
 
 
 class PermissionChecker:
@@ -133,10 +134,46 @@ class PermissionChecker:
         return dataset
 
 
+# Helper to fetch full User model from JWT dict
+async def _resolve_user(user_dict: dict, db: AsyncSession) -> User:
+    """Fetch full User model from database using JWT payload dict."""
+    user_id = user_dict.get("id")
+    if not user_id:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid user token"
+        )
+    try:
+        user_uuid = uuid.UUID(user_id)
+    except ValueError:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid user ID format"
+        )
+
+    result = await db.execute(select(User).where(User.id == user_uuid))
+    user = result.scalars().first()
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="User not found"
+        )
+    if not user.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="User account is deactivated"
+        )
+    return user
+
+
 # FastAPI Dependencies
 
-async def get_current_admin(user: User = Depends(get_current_user)) -> User:
+async def get_current_admin(
+    user_dict: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+) -> User:
     """Dependency that requires user to be an admin."""
+    user = await _resolve_user(user_dict, db)
     if user.role != UserRole.ADMIN:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -145,8 +182,12 @@ async def get_current_admin(user: User = Depends(get_current_user)) -> User:
     return user
 
 
-async def get_current_editor_or_admin(user: User = Depends(get_current_user)) -> User:
+async def get_current_editor_or_admin(
+    user_dict: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+) -> User:
     """Dependency that requires user to be an editor or admin."""
+    user = await _resolve_user(user_dict, db)
     if user.role not in [UserRole.EDITOR, UserRole.ADMIN]:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -178,10 +219,11 @@ class DatasetAccess:
     async def __call__(
         self,
         dataset_id: str,
-        db: AsyncSession,
-        user: User = Depends(get_current_user)
+        db: AsyncSession = Depends(get_db),
+        user_dict: dict = Depends(get_current_user)
     ) -> Dataset:
         """Fetch and validate dataset access."""
+        user = await _resolve_user(user_dict, db)
         return await PermissionChecker.require_dataset_access(
             user, dataset_id, db, self.access_type
         )
@@ -200,7 +242,11 @@ def require_role(required_role: UserRole):
         ):
             ...
     """
-    async def role_checker(user: User = Depends(get_current_user)) -> User:
+    async def role_checker(
+        user_dict: dict = Depends(get_current_user),
+        db: AsyncSession = Depends(get_db)
+    ) -> User:
+        user = await _resolve_user(user_dict, db)
         if user.role != required_role:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
@@ -222,7 +268,11 @@ def require_permission(permission: str):
         ):
             ...
     """
-    async def permission_checker(user: User = Depends(get_current_user)) -> User:
+    async def permission_checker(
+        user_dict: dict = Depends(get_current_user),
+        db: AsyncSession = Depends(get_db)
+    ) -> User:
+        user = await _resolve_user(user_dict, db)
         if not user.has_permission(permission):
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
