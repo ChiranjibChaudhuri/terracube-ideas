@@ -42,11 +42,18 @@ const LoginPage = () => {
     <div className="page login-page">
       <form className="login-card" onSubmit={handleSubmit}>
         <div className="login-brand">
-          <img src="/logo.svg" alt="TerraCube IDEAS logo" />
+          <img src="/logo.svg" alt="TerraCube IDEAS" />
           <strong>TerraCube IDEAS</strong>
         </div>
+
         <h2>{mode === 'login' ? 'Welcome back' : 'Create your account'}</h2>
         <p>{mode === 'login' ? 'Sign in to launch the DGGS workspace.' : 'Register to start exploring DGGS layers.'}</p>
+
+        {redirectMessage && (
+          <div className="session-alert" style={{ background: 'rgba(59, 130, 246, 0.1)', borderColor: '#3b82f6', color: '#93c5fd' }}>
+            {redirectMessage}
+          </div>
+        )}
 
         {mode === 'register' && (
           <div className="form-field">
@@ -56,7 +63,7 @@ const LoginPage = () => {
               type="text"
               value={name}
               onChange={(event) => setName(event.target.value)}
-              placeholder="IDEAS Analyst"
+              placeholder="Your name"
               required
             />
           </div>
@@ -86,18 +93,19 @@ const LoginPage = () => {
           />
         </div>
 
-        {redirectMessage && <p style={{ color: '#2b6cb0' }}>{redirectMessage}</p>}
-        {error && <p style={{ color: '#b7412d' }}>{error}</p>}
+        {error && (
+          <div className="session-alert">{error}</div>
+        )}
 
         <button className="button-primary" type="submit" disabled={loading}>
-          {loading ? 'Loading...' : mode === 'login' ? 'Sign in' : 'Create account'}
+          {loading ? 'Authenticating...' : mode === 'login' ? 'Sign in' : 'Create account'}
         </button>
 
         <button
           className="button-secondary"
           type="button"
-          onClick={() => setMode(mode === 'login' ? 'register' : 'login')}
-          style={{ marginTop: '0.8rem' }}
+          onClick={() => { setMode(mode === 'login' ? 'register' : 'login'); setError(''); }}
+          style={{ marginTop: '0.75rem' }}
         >
           {mode === 'login' ? 'Need an account? Register' : 'Already have an account? Sign in'}
         </button>

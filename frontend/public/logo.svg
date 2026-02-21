@@ -1,5 +1,5 @@
 <svg width="200" height="200" viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg" fill="none">
-  <!-- Isometric Cube with climate-themed colors using exact SVG structure -->
+  <!-- TerraCube: Isometric Cube with climate-themed colors -->
   <g transform="translate(20, 70) scale(8)">
     <!-- Front face - Ocean/Water (Blue) -->
     <path d="M5.825 2.82l4.35 2.524v5.052L5.825 7.87V2.82z" fill="#0891B2" fill-rule="evenodd" clip-rule="evenodd"/>
