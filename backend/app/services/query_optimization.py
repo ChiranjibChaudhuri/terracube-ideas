@@ -193,15 +193,25 @@ class QueryOptimizationService:
     ) -> Dict[str, Any]:
         """
         Get query execution plan from PostgreSQL EXPLAIN.
-        Only allows SELECT statements for safety.
+        Only allows simple SELECT statements for safety.
         """
-        # Security: only allow EXPLAIN on SELECT statements
-        stripped = sql.strip().upper()
-        if not stripped.startswith("SELECT"):
+        # Security: strict validation - only allow SELECT, reject semicolons and multi-statements
+        stripped = sql.strip()
+        if not stripped.upper().startswith("SELECT"):
             raise ValueError("EXPLAIN is only supported for SELECT statements")
+        if ";" in stripped:
+            raise ValueError("Multi-statement queries are not allowed")
+
+        # Additional safety: reject DDL/DML keywords that shouldn't appear in a SELECT
+        forbidden = ["DROP", "DELETE", "INSERT", "UPDATE", "ALTER", "CREATE", "TRUNCATE", "GRANT", "REVOKE"]
+        upper_sql = stripped.upper()
+        for keyword in forbidden:
+            # Check for keyword as a standalone word (not inside a string literal)
+            if f" {keyword} " in f" {upper_sql} ":
+                raise ValueError(f"Forbidden keyword in query: {keyword}")
 
         try:
-            result = await self.db.execute(text(f"EXPLAIN (FORMAT JSON) {sql}"))
+            result = await self.db.execute(text(f"EXPLAIN (FORMAT JSON) {stripped}"))
             plan = [dict(row._mapping) for row in result]
             return {
                 "sql": sql,
