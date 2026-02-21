@@ -70,6 +70,22 @@ class KernelDensityRequest(BaseModel):
     bandwidth: int = Field(default=3, ge=1, le=10)
     kernel: str = Field(default="gaussian", pattern="^(gaussian|linear|uniform)$")
 
+class FlowAccumulationRequest(BaseModel):
+    dataset_id: str
+    elevation_attr: str = "elevation"
+
+class ViewshedRequest(BaseModel):
+    dataset_id: str
+    observer_dggid: str
+    elevation_attr: str = "elevation"
+    observer_height: float = Field(default=1.8, ge=0, le=1000)
+    max_radius: int = Field(default=20, ge=1, le=50)
+
+class VoronoiRequest(BaseModel):
+    dataset_id: str
+    seed_attr: str = "category"
+    max_radius: int = Field(default=50, ge=1, le=100)
+
 
 # --- Endpoints ---
 
@@ -242,6 +258,75 @@ async def compute_kernel_density(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.post("/flow-accumulation")
+async def compute_flow_accumulation(
+    req: FlowAccumulationRequest,
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Compute flow accumulation (watershed delineation) from elevation.
+
+    Counts how many upstream cells drain through each cell.
+    High values indicate rivers/valleys.
+    """
+    try:
+        service = get_spatial_analysis_service(db)
+        result = await service.flow_accumulation(req.dataset_id, req.elevation_attr)
+        return result
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error(f"Flow accumulation failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/viewshed")
+async def compute_viewshed(
+    req: ViewshedRequest,
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Viewshed analysis from an observer cell.
+
+    Determines which cells are visible from the observer using elevation data.
+    Returns a new dataset with visibility values (1=visible, 0=hidden).
+    """
+    try:
+        service = get_spatial_analysis_service(db)
+        result = await service.viewshed(
+            req.dataset_id, req.observer_dggid,
+            req.elevation_attr, req.observer_height, req.max_radius
+        )
+        return result
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error(f"Viewshed failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/voronoi")
+async def compute_voronoi_zones(
+    req: VoronoiRequest,
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Voronoi / Proximity Zones on DGGS grid.
+
+    Assigns every reachable cell to its nearest seed cell using BFS expansion.
+    Creates natural Thiessen polygons on the hexagonal grid.
+    """
+    try:
+        service = get_spatial_analysis_service(db)
+        result = await service.voronoi_zones(req.dataset_id, req.seed_attr, req.max_radius)
+        return result
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error(f"Voronoi zones failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.get("/capabilities")
 async def get_analysis_capabilities():
     """List all available spatial analysis algorithms and their parameters."""
@@ -342,6 +427,30 @@ async def get_analysis_capabilities():
                 "category": "spatial",
                 "inputs": ["dataset_a_id", "iterations"],
                 "outputs": ["result dataset with distance values"]
+            },
+            {
+                "name": "flow_accumulation",
+                "endpoint": "/api/analysis/flow-accumulation",
+                "description": "Watershed delineation and flow accumulation",
+                "category": "hydrology",
+                "inputs": ["dataset_id", "elevation_attr"],
+                "outputs": ["result dataset with accumulation counts"]
+            },
+            {
+                "name": "viewshed",
+                "endpoint": "/api/analysis/viewshed",
+                "description": "Line-of-sight visibility analysis",
+                "category": "terrain",
+                "inputs": ["dataset_id", "observer_dggid", "elevation_attr", "max_radius"],
+                "outputs": ["result dataset with visibility (1/0)"]
+            },
+            {
+                "name": "voronoi_zones",
+                "endpoint": "/api/analysis/voronoi",
+                "description": "Voronoi / proximity zones (Thiessen polygons)",
+                "category": "spatial",
+                "inputs": ["dataset_id", "seed_attr", "max_radius"],
+                "outputs": ["result dataset with zone assignments and distances"]
             }
         ]
     }

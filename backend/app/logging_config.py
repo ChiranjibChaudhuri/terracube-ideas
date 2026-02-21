@@ -7,7 +7,7 @@ import logging
 import sys
 from datetime import datetime
 from typing import Any, Dict
-from pythonjsonlogger import pythonjsonlogger
+import json
 from app.config import settings
 
 # Log format
@@ -32,10 +32,11 @@ class StructuredFormatter(logging.Formatter):
         }
 
         # Add exception info if present
-        if record.exc_info:
+        if record.exc_info and record.exc_info[0] is not None:
+            exc_type, exc_value, exc_tb = record.exc_info
             log_dict["exception"] = {
-                "type": type(record.exc_info[0]).__name__,
-                "message": str(record.exc_info[0]),
+                "type": exc_type.__name__ if exc_type else "Unknown",
+                "message": str(exc_value) if exc_value else "",
                 "traceback": self.formatException(record.exc_info)
             }
 
@@ -58,7 +59,7 @@ class StructuredFormatter(logging.Formatter):
         if duration_ms:
             log_dict["duration_ms"] = duration_ms
 
-        return pythonjsonlogger.dumps(log_dict)
+        return json.dumps(log_dict, default=str)
 
 
 # Request logging middleware
@@ -106,7 +107,7 @@ class RequestLoggingMiddleware:
 
         self.logger.log(
             level,
-            "%s %s %s",
+            "%s %s %s %s",
             request.method,
             str(request.url.path),
             response.status_code,

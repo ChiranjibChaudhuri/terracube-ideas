@@ -434,22 +434,11 @@ class FireSpreadPredictionService(PredictionService):
         }
 
 
-# Singleton instances
-_prediction_service = None
-_fire_spread_service = None
-
-
 def get_prediction_service(db: AsyncSession) -> PredictionService:
-    """Get or create singleton PredictionService instance."""
-    global _prediction_service
-    if _prediction_service is None:
-        _prediction_service = PredictionService(db)
-    return _prediction_service
+    """Create a PredictionService instance for the given session."""
+    return PredictionService(db)
 
 
 def get_fire_spread_service(db: AsyncSession) -> FireSpreadPredictionService:
-    """Get or create singleton FireSpreadPredictionService instance."""
-    global _fire_spread_service
-    if _fire_spread_service is None:
-        _fire_spread_service = FireSpreadPredictionService(db)
-    return _fire_spread_service
+    """Create a FireSpreadPredictionService instance for the given session."""
+    return FireSpreadPredictionService(db)

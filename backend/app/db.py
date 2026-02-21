@@ -58,31 +58,6 @@ class PoolMetrics:
 _pool_metrics = PoolMetrics()
 
 
-@event.listens_for(engine)
-def receive_new_connection(dbapi_conn, connection_proxy, connection):
-    """Log new connection for monitoring."""
-    logger.debug("New database connection established")
-
-
-@event.listens_for(engine)
-def receive_checkout(dbapi_conn, connection_proxy, connection):
-    """Track checkout success/failure for metrics."""
-    try:
-        _pool_metrics.record_checkout(True)
-    except Exception:
-        pass
-
-
-@event.listens_for(engine)
-def receive_checkout_failure(dbapi_conn, connection_proxy, connection, exception):
-    """Track checkout failures for metrics."""
-    try:
-        _pool_metrics.record_checkout(False)
-        logger.warning(f"Connection checkout failure: {exception}")
-    except Exception:
-        pass
-
-
 engine = create_async_engine(
     SQLALCHEMY_DATABASE_URL,
     echo=False,  # Disable SQL logging in production
@@ -95,6 +70,31 @@ engine = create_async_engine(
         "server_settings": {"application_name": "terracube_ideas"}
     }
 )
+
+
+# Event listeners must be registered AFTER engine creation
+@event.listens_for(engine.sync_engine, "connect")
+def receive_new_connection(dbapi_conn, connection_record):
+    """Log new connection for monitoring."""
+    logger.debug("New database connection established")
+
+
+@event.listens_for(engine.sync_engine, "checkout")
+def receive_checkout(dbapi_conn, connection_record, connection_proxy):
+    """Track checkout success/failure for metrics."""
+    try:
+        _pool_metrics.record_checkout(True)
+    except Exception:
+        pass
+
+
+@event.listens_for(engine.sync_engine, "checkin")
+def receive_checkin(dbapi_conn, connection_record):
+    """Track checkin for metrics."""
+    try:
+        _pool_metrics.record_checkin(True)
+    except Exception:
+        pass
 AsyncSessionLocal = async_sessionmaker(engine, expire_on_commit=False, class_=AsyncSession)
 
 # Dependency for FastAPI routers
@@ -130,9 +130,9 @@ async def get_db_health() -> dict:
     health = {
         "status": "unknown",
         "pool_size": engine.pool.size(),
-        "pool_checked_in": engine.pool.checkedout(),
+        "pool_checkedin": engine.pool.checkedin(),
+        "pool_checkedout": engine.pool.checkedout(),
         "pool_overflow": engine.pool.overflow(),
-        "pool_checked_in_overflow": engine.pool.checkedout_overflow(),
         "metrics": _pool_metrics.get_health()
     }
 

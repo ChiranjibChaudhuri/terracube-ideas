@@ -9,7 +9,14 @@ logger = logging.getLogger(__name__)
 
 
 async def _drop_partitions(conn, dataset_ids: Iterable[str]) -> None:
+    import uuid
     for dataset_id in dataset_ids:
+        # Validate UUID format to prevent SQL injection
+        try:
+            uuid.UUID(dataset_id)
+        except ValueError:
+            logger.warning(f"Skipping invalid dataset_id for partition drop: {dataset_id}")
+            continue
         table_name = f"cell_objects_{dataset_id.replace('-', '_')}"
         await conn.execute(f'DROP TABLE IF EXISTS "{table_name}"')
 

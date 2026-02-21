@@ -595,21 +595,11 @@ class CellularAutomataService:
 
 
 # Singleton instances
-_temporal_service = None
-_ca_service = None
-
-
 def get_temporal_service(db: AsyncSession) -> TemporalService:
-    """Get or create singleton TemporalService instance."""
-    global _temporal_service
-    if _temporal_service is None:
-        _temporal_service = TemporalService(db)
-    return _temporal_service
+    """Create a TemporalService instance for the given session."""
+    return TemporalService(db)
 
 
 def get_ca_service(db: AsyncSession) -> CellularAutomataService:
-    """Get or create singleton CellularAutomataService instance."""
-    global _ca_service
-    if _ca_service is None:
-        _ca_service = CellularAutomataService(db)
-    return _ca_service
+    """Create a CellularAutomataService instance for the given session."""
+    return CellularAutomataService(db)

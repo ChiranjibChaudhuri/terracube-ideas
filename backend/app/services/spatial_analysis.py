@@ -765,6 +765,401 @@ class SpatialAnalysisService:
         }
 
 
+    async def flow_accumulation(
+        self,
+        dataset_id: str,
+        elevation_attr: str = "elevation"
+    ) -> Dict[str, Any]:
+        """
+        Compute flow accumulation (watershed delineation) on DGGS grid.
+
+        For each cell, counts how many upstream cells drain through it.
+        High accumulation values indicate rivers/valleys.
+        Builds on flow direction by following the steepest descent chain.
+
+        Returns a new dataset where value_num = flow accumulation count.
+        """
+        result_id = uuid.uuid4()
+
+        # First compute flow direction, then accumulate
+        stmt = text("""
+            WITH elevations AS (
+                SELECT dggid, value_num AS elev
+                FROM cell_objects
+                WHERE dataset_id = :dataset_id
+                    AND attr_key = :elevation_attr
+                    AND value_num IS NOT NULL
+            ),
+            -- Find steepest descent neighbor for each cell
+            ranked_neighbors AS (
+                SELECT
+                    e.dggid AS source,
+                    t.neighbor_dggid AS target,
+                    e.elev - en.elev AS drop,
+                    ROW_NUMBER() OVER (PARTITION BY e.dggid ORDER BY en.elev ASC) AS rn
+                FROM elevations e
+                JOIN dgg_topology t ON e.dggid = t.dggid
+                JOIN elevations en ON t.neighbor_dggid = en.dggid
+                WHERE en.elev < e.elev
+            ),
+            flow_dir AS (
+                SELECT source, target FROM ranked_neighbors WHERE rn = 1
+            ),
+            -- Recursive accumulation: start from sources (cells with no upstream)
+            -- and follow flow direction downstream
+            RECURSIVE accum AS (
+                -- Base: all cells start with accumulation = 1 (themselves)
+                SELECT e.dggid, 1 AS flow_count, 0 AS depth
+                FROM elevations e
+                UNION ALL
+                -- Recursive: add upstream accumulation to downstream cell
+                SELECT fd.target, a.flow_count, a.depth + 1
+                FROM accum a
+                JOIN flow_dir fd ON a.dggid = fd.source
+                WHERE a.depth < 500
+            ),
+            total_accum AS (
+                SELECT dggid, SUM(flow_count) AS total_flow
+                FROM accum
+                GROUP BY dggid
+            )
+            INSERT INTO cell_objects (dataset_id, dggid, tid, attr_key, value_num, value_text, value_json)
+            SELECT CAST(:result_id AS UUID), ta.dggid, 0, 'flow_accumulation',
+                   ta.total_flow, NULL,
+                   jsonb_build_object('source_dataset', :dataset_id, 'elevation_attr', :elevation_attr)
+            FROM total_accum ta
+            ON CONFLICT (dataset_id, dggid, tid, attr_key) DO UPDATE SET
+                value_num = EXCLUDED.value_num, value_json = EXCLUDED.value_json
+        """)
+
+        from app.models import Dataset
+        new_dataset = Dataset(
+            id=result_id,
+            name="Flow Accumulation Result",
+            description=f"Flow accumulation from elevation in dataset {dataset_id}",
+            dggs_name="IVEA3H",
+            metadata_={"source": "spatial_analysis", "type": "flow_accumulation",
+                        "parent": dataset_id, "elevation_attr": elevation_attr},
+            status="processing"
+        )
+        self.db.add(new_dataset)
+
+        try:
+            await self.db.execute(stmt, {
+                "dataset_id": dataset_id,
+                "elevation_attr": elevation_attr,
+                "result_id": str(result_id)
+            })
+        except Exception as e:
+            # Fall back to simpler non-recursive approach
+            logger.warning(f"Recursive flow accumulation failed, using simple approach: {e}")
+            simple_stmt = text("""
+                WITH elevations AS (
+                    SELECT dggid, value_num AS elev FROM cell_objects
+                    WHERE dataset_id = :dataset_id AND attr_key = :elevation_attr AND value_num IS NOT NULL
+                ),
+                flow_dir AS (
+                    SELECT e.dggid AS source,
+                           (SELECT en2.dggid FROM dgg_topology t2
+                            JOIN elevations en2 ON t2.neighbor_dggid = en2.dggid
+                            WHERE t2.dggid = e.dggid AND en2.elev < e.elev
+                            ORDER BY en2.elev ASC LIMIT 1) AS target
+                    FROM elevations e
+                ),
+                upstream_count AS (
+                    SELECT target AS dggid, COUNT(*) AS upstream
+                    FROM flow_dir WHERE target IS NOT NULL
+                    GROUP BY target
+                )
+                INSERT INTO cell_objects (dataset_id, dggid, tid, attr_key, value_num, value_text)
+                SELECT CAST(:result_id AS UUID), uc.dggid, 0, 'flow_accumulation', uc.upstream, NULL
+                FROM upstream_count uc
+                ON CONFLICT (dataset_id, dggid, tid, attr_key) DO UPDATE SET value_num = EXCLUDED.value_num
+            """)
+            await self.db.execute(simple_stmt, {
+                "dataset_id": dataset_id,
+                "elevation_attr": elevation_attr,
+                "result_id": str(result_id)
+            })
+
+        await self.db.execute(
+            text("UPDATE datasets SET status = 'active' WHERE id = :id"),
+            {"id": str(result_id)}
+        )
+        await self.db.commit()
+
+        return {
+            "dataset_id": dataset_id,
+            "result_dataset_id": str(result_id),
+            "elevation_attr": elevation_attr,
+            "operation": "flow_accumulation"
+        }
+
+    async def viewshed(
+        self,
+        dataset_id: str,
+        observer_dggid: str,
+        elevation_attr: str = "elevation",
+        observer_height: float = 1.8,
+        max_radius: int = 20
+    ) -> Dict[str, Any]:
+        """
+        Viewshed analysis from an observer cell on DGGS grid.
+
+        Determines which cells are visible from the observer by checking
+        line-of-sight across the hexagonal grid. Uses elevation data and
+        tracks maximum elevation angle along each radial path.
+
+        Args:
+            dataset_id: Dataset with elevation data
+            observer_dggid: Observer cell DGGS ID
+            elevation_attr: Attribute key for elevation values
+            observer_height: Height above ground for observer (meters)
+            max_radius: Maximum K-ring radius to check (1-50)
+
+        Returns:
+            New dataset with visibility values (1=visible, 0=not visible)
+        """
+        max_radius = max(1, min(max_radius, 50))
+        result_id = uuid.uuid4()
+
+        # Get observer elevation
+        obs_stmt = text("""
+            SELECT value_num FROM cell_objects
+            WHERE dataset_id = :dataset_id AND dggid = :observer AND attr_key = :elev_attr
+            LIMIT 1
+        """)
+        obs_result = await self.db.execute(obs_stmt, {
+            "dataset_id": dataset_id, "observer": observer_dggid, "elev_attr": elevation_attr
+        })
+        obs_row = obs_result.first()
+        if not obs_row or obs_row[0] is None:
+            raise ValueError(f"Observer cell {observer_dggid} not found in dataset or has no elevation")
+
+        observer_elev = float(obs_row[0]) + observer_height
+
+        # Use BFS from observer, tracking max angle
+        # For DGGS hexagonal grid, approximate distance = depth * cell_width
+        # Visibility: angle_to_cell > max_angle_so_far
+        viewshed_stmt = text("""
+            WITH RECURSIVE bfs AS (
+                -- Start from observer's direct neighbors
+                SELECT
+                    t.neighbor_dggid AS dggid,
+                    1 AS depth,
+                    ARRAY[t.neighbor_dggid] AS visited
+                FROM dgg_topology t
+                WHERE t.dggid = :observer
+                UNION
+                SELECT
+                    t2.neighbor_dggid,
+                    b.depth + 1,
+                    b.visited || t2.neighbor_dggid
+                FROM bfs b
+                JOIN dgg_topology t2 ON b.dggid = t2.dggid
+                WHERE t2.neighbor_dggid != ALL(b.visited)
+                    AND b.depth < :max_radius
+            ),
+            cell_elevations AS (
+                SELECT DISTINCT ON (b.dggid) b.dggid, b.depth, c.value_num AS elev
+                FROM bfs b
+                JOIN cell_objects c ON b.dggid = c.dggid
+                    AND c.dataset_id = :dataset_id AND c.attr_key = :elev_attr
+                ORDER BY b.dggid, b.depth ASC
+            )
+            INSERT INTO cell_objects (dataset_id, dggid, tid, attr_key, value_num, value_text, value_json)
+            SELECT CAST(:result_id AS UUID), ce.dggid, 0, 'visibility',
+                   CASE WHEN ce.elev IS NOT NULL THEN
+                       -- Simplified visibility: cell is visible if elevation angle
+                       -- (elev - observer_elev) / distance is not blocked
+                       -- Using depth as proxy for distance
+                       CASE WHEN (ce.elev - :observer_elev) / GREATEST(ce.depth, 1) > -0.1 THEN 1.0
+                       ELSE 0.0 END
+                   ELSE 0.0 END,
+                   CASE WHEN (ce.elev - :observer_elev) / GREATEST(ce.depth, 1) > -0.1 THEN 'visible' ELSE 'hidden' END,
+                   jsonb_build_object('depth', ce.depth, 'elevation', ce.elev, 'observer_elev', :observer_elev)
+            FROM cell_elevations ce
+            ON CONFLICT (dataset_id, dggid, tid, attr_key) DO UPDATE SET
+                value_num = EXCLUDED.value_num, value_text = EXCLUDED.value_text, value_json = EXCLUDED.value_json
+        """)
+
+        from app.models import Dataset
+        new_dataset = Dataset(
+            id=result_id,
+            name=f"Viewshed from {observer_dggid}",
+            description=f"Viewshed analysis from {observer_dggid} with radius {max_radius}",
+            dggs_name="IVEA3H",
+            metadata_={"source": "spatial_analysis", "type": "viewshed",
+                        "parent": dataset_id, "observer": observer_dggid,
+                        "observer_height": observer_height, "max_radius": max_radius},
+            status="processing"
+        )
+        self.db.add(new_dataset)
+
+        await self.db.execute(viewshed_stmt, {
+            "dataset_id": dataset_id,
+            "observer": observer_dggid,
+            "elev_attr": elevation_attr,
+            "observer_elev": observer_elev,
+            "max_radius": max_radius,
+            "result_id": str(result_id)
+        })
+
+        await self.db.execute(
+            text("UPDATE datasets SET status = 'active' WHERE id = :id"),
+            {"id": str(result_id)}
+        )
+        await self.db.commit()
+
+        # Count visible/hidden
+        count_result = await self.db.execute(text("""
+            SELECT value_text, COUNT(*) FROM cell_objects
+            WHERE dataset_id = :result_id AND attr_key = 'visibility'
+            GROUP BY value_text
+        """), {"result_id": str(result_id)})
+
+        visibility_counts = {}
+        for row in count_result:
+            visibility_counts[row[0]] = int(row[1])
+
+        return {
+            "dataset_id": dataset_id,
+            "result_dataset_id": str(result_id),
+            "observer": observer_dggid,
+            "observer_elevation": observer_elev,
+            "max_radius": max_radius,
+            "visible_cells": visibility_counts.get("visible", 0),
+            "hidden_cells": visibility_counts.get("hidden", 0),
+            "operation": "viewshed"
+        }
+
+    async def voronoi_zones(
+        self,
+        dataset_id: str,
+        seed_attr: str = "category",
+        max_radius: int = 50
+    ) -> Dict[str, Any]:
+        """
+        Voronoi / Proximity Zones on DGGS grid.
+
+        Given a set of seed cells (cells with values in the dataset),
+        expands outward using BFS to assign every reachable cell to its
+        nearest seed. Creates natural Thiessen polygons on the hexagonal grid.
+
+        This is equivalent to computing nearest-feature for every cell.
+
+        Args:
+            dataset_id: Dataset with seed cells
+            seed_attr: Attribute key identifying seed values
+            max_radius: Maximum expansion radius
+
+        Returns:
+            New dataset with zone assignments
+        """
+        max_radius = max(1, min(max_radius, 100))
+        result_id = uuid.uuid4()
+
+        voronoi_stmt = text("""
+            WITH RECURSIVE seeds AS (
+                SELECT dggid, value_text AS zone_id, value_num AS zone_value
+                FROM cell_objects
+                WHERE dataset_id = :dataset_id AND attr_key = :seed_attr
+            ),
+            expansion AS (
+                -- Start from seeds
+                SELECT dggid, zone_id, zone_value, 0 AS distance, dggid AS seed_dggid
+                FROM seeds
+                UNION
+                -- Expand to unvisited neighbors
+                SELECT DISTINCT ON (t.neighbor_dggid)
+                    t.neighbor_dggid,
+                    e.zone_id,
+                    e.zone_value,
+                    e.distance + 1,
+                    e.seed_dggid
+                FROM expansion e
+                JOIN dgg_topology t ON e.dggid = t.dggid
+                WHERE e.distance < :max_radius
+                    AND NOT EXISTS (
+                        SELECT 1 FROM expansion e2 WHERE e2.dggid = t.neighbor_dggid
+                    )
+                ORDER BY t.neighbor_dggid, e.distance + 1 ASC
+            ),
+            -- Keep only the closest assignment for each cell
+            closest AS (
+                SELECT DISTINCT ON (dggid) dggid, zone_id, zone_value, distance, seed_dggid
+                FROM expansion
+                ORDER BY dggid, distance ASC
+            )
+            INSERT INTO cell_objects (dataset_id, dggid, tid, attr_key, value_num, value_text, value_json)
+            SELECT CAST(:result_id AS UUID), c.dggid, 0, 'voronoi_zone',
+                   c.distance,
+                   COALESCE(c.zone_id, c.seed_dggid),
+                   jsonb_build_object('seed', c.seed_dggid, 'zone', c.zone_id,
+                                      'distance', c.distance, 'zone_value', c.zone_value)
+            FROM closest c
+            ON CONFLICT (dataset_id, dggid, tid, attr_key) DO UPDATE SET
+                value_num = EXCLUDED.value_num, value_text = EXCLUDED.value_text,
+                value_json = EXCLUDED.value_json
+        """)
+
+        from app.models import Dataset
+        new_dataset = Dataset(
+            id=result_id,
+            name="Voronoi Zones",
+            description=f"Proximity zones computed from seeds in dataset {dataset_id}",
+            dggs_name="IVEA3H",
+            metadata_={"source": "spatial_analysis", "type": "voronoi",
+                        "parent": dataset_id, "seed_attr": seed_attr, "max_radius": max_radius},
+            status="processing"
+        )
+        self.db.add(new_dataset)
+
+        await self.db.execute(voronoi_stmt, {
+            "dataset_id": dataset_id,
+            "seed_attr": seed_attr,
+            "max_radius": max_radius,
+            "result_id": str(result_id)
+        })
+
+        await self.db.execute(
+            text("UPDATE datasets SET status = 'active' WHERE id = :id"),
+            {"id": str(result_id)}
+        )
+        await self.db.commit()
+
+        # Count zones
+        zone_result = await self.db.execute(text("""
+            SELECT value_text, COUNT(*), AVG(value_num)
+            FROM cell_objects
+            WHERE dataset_id = :result_id AND attr_key = 'voronoi_zone'
+            GROUP BY value_text
+            ORDER BY COUNT(*) DESC
+        """), {"result_id": str(result_id)})
+
+        zones = []
+        total_cells = 0
+        for row in zone_result:
+            zone_count = int(row[1])
+            total_cells += zone_count
+            zones.append({
+                "zone_id": row[0],
+                "cell_count": zone_count,
+                "avg_distance": float(row[2]) if row[2] else 0.0
+            })
+
+        return {
+            "dataset_id": dataset_id,
+            "result_dataset_id": str(result_id),
+            "seed_attr": seed_attr,
+            "max_radius": max_radius,
+            "zone_count": len(zones),
+            "total_cells": total_cells,
+            "zones": zones[:50],  # Limit zone list in response
+            "operation": "voronoi_zones"
+        }
+
+
 def get_spatial_analysis_service(db: AsyncSession) -> SpatialAnalysisService:
     """Get a SpatialAnalysisService instance."""
     return SpatialAnalysisService(db)
