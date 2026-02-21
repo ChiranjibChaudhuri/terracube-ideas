@@ -2,7 +2,7 @@
 Annotations and related models for TerraCube IDEAS
 """
 
-from sqlalchemy import Column, String, Text, ForeignKey, Index, Unique, Integer, CheckConstraint, JSONB, Boolean
+from sqlalchemy import Column, String, Text, ForeignKey, Index, UniqueConstraint, Integer, CheckConstraint, Boolean
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 from app.models import Base

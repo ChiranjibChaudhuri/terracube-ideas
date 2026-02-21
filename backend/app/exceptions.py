@@ -7,7 +7,7 @@ This module provides standardized error responses for all API endpoints.
 from fastapi import FastAPI, Request, status
 from fastapi.responses import JSONResponse
 from fastapi.exceptions import RequestValidationError, StarletteHTTPException
-from pydantic import ValidationError
+from pydantic import ValidationError as PydanticValidationError
 import logging
 import uuid
 import traceback
@@ -236,12 +236,13 @@ async def validate_dataset_exists(dataset_id: uuid.UUID, db) -> Any:
     from app.models import Dataset
 
     result = await db.execute(select(Dataset).where(Dataset.id == dataset_id))
-    if result.first() is None:
+    row = result.scalars().first()
+    if row is None:
         raise NotFoundError(
             message=f"Dataset not found",
             details={"dataset_id": str(dataset_id)}
         )
-    return result.first()
+    return row
 
 
 def sanitize_dggid(dggid: str) -> str:

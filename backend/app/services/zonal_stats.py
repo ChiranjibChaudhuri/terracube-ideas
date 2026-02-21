@@ -6,9 +6,10 @@ supporting multiple variables and various aggregation methods.
 """
 
 import asyncio
-from typing import Dict, List, Optional, Any, Literal
-from sqlalchemy import select, text, func, and_, case_, or_
+from typing import Dict, List, Optional, Any
+from sqlalchemy import select, text, func, and_, or_
 from sqlalchemy.ext.asyncio import AsyncSession
+from app.models import CellObject
 import logging
 
 logger = logging.getLogger(__name__)
@@ -24,7 +25,7 @@ class StatisticMethod:
     STDDEV = "stddev"
     VARIANCE = "variance"
     COUNT = "count"
-    MODE = "mode"  # Most frequent value
+    MODE = "mode"
     PERCENTILE = "percentile"
     HISTOGRAM = "histogram"
 
@@ -47,9 +48,9 @@ class ZonalStatsService:
         self,
         dataset_id: str,
         mask_dataset_id: Optional[str] = None,
-        variables: List[str],
-        operations: List[str] = None,
-        percentile_bins: List[int] = None
+        variables: Optional[List[str]] = None,
+        operations: Optional[List[str]] = None,
+        percentile_bins: Optional[List[int]] = None,
         histogram_bins: int = 10,
         weight_by_area: bool = False
     ) -> Dict[str, Any]:
@@ -68,7 +69,6 @@ class ZonalStatsService:
         Returns:
             Dictionary with results for each variable and operation
         """
-        from app.models import Dataset, CellObject
         import uuid
 
         # Validate inputs
@@ -76,7 +76,10 @@ class ZonalStatsService:
             ds_uuid = uuid.UUID(dataset_id)
             mask_uuid = uuid.UUID(mask_dataset_id) if mask_dataset_id else None
         except ValueError:
-            raise ValueError(f"Invalid dataset_id or mask_dataset_id format")
+            raise ValueError("Invalid dataset_id or mask_dataset_id format")
+
+        if not variables:
+            variables = []
 
         if operations is None:
             operations = [
@@ -85,25 +88,22 @@ class ZonalStatsService:
                 StatisticMethod.VARIANCE, StatisticMethod.COUNT
             ]
 
+        valid_ops = {
+            StatisticMethod.SUM, StatisticMethod.MEAN, StatisticMethod.MEDIAN,
+            StatisticMethod.MIN, StatisticMethod.MAX, StatisticMethod.STDDEV,
+            StatisticMethod.VARIANCE, StatisticMethod.COUNT,
+            StatisticMethod.MODE, StatisticMethod.PERCENTILE, StatisticMethod.HISTOGRAM
+        }
         for op in operations:
-            if op not in [
-                StatisticMethod.SUM, StatisticMethod.MEAN, StatisticMethod.MEDIAN,
-                StatisticMethod.MIN, StatisticMethod.MAX, StatisticMethod.STDDEV,
-                StatisticMethod.VARIANCE, StatisticMethod.COUNT,
-                StatisticMethod.MODE, StatisticMethod.PERCENTILE, StatisticMethod.HISTOGRAM
-            ]:
+            if op not in valid_ops:
                 raise ValueError(f"Unsupported operation: {op}")
-
-        # Build dynamic query based on variables and operations
-        from app.dggal_utils import get_dggal_service
-        dggs = get_dggal_service()  # Will be set by dataset DGGS name
 
         results = {}
 
         for var in variables:
             var_results = await self._compute_statistics_for_variable(
                 ds_uuid, mask_uuid, var, operations,
-                percentile_bins, histogram_bins, weight_by_area, dggs
+                percentile_bins, histogram_bins
             )
             results[var] = var_results
 
@@ -116,27 +116,26 @@ class ZonalStatsService:
 
     async def _compute_statistics_for_variable(
         self,
-        dataset_id: str,
-        mask_uuid: Optional[str],
+        dataset_id,
+        mask_uuid,
         variable: str,
         operations: List[str],
-        percentile_bins: List[int],
-        histogram_bins: int,
-        weight_by_area: bool,
-        dggs
+        percentile_bins: Optional[List[int]],
+        histogram_bins: int
     ) -> Dict[str, Any]:
         """
         Compute all requested statistics for a single variable.
         """
-        from sqlalchemy import case_
-
         # Base query with mask join
-        base_query = select(
-            CellObject.dggid,
-            CellObject.tid,
-            CellObject.value_num
-        ).where(CellObject.dataset_id == dataset_id)
-        .where(CellObject.attr_key == variable)
+        base_query = (
+            select(
+                CellObject.dggid,
+                CellObject.tid,
+                CellObject.value_num
+            )
+            .where(CellObject.dataset_id == dataset_id)
+            .where(CellObject.attr_key == variable)
+        )
 
         # Apply mask if provided
         if mask_uuid:
@@ -150,8 +149,9 @@ class ZonalStatsService:
 
         # Sum
         if StatisticMethod.SUM in operations:
-            stmt = base_query.with_only_columns(
-                func.sum(CellObject.value_num).label("sum")
+            stmt = select(func.sum(CellObject.value_num).label("sum")).where(
+                CellObject.dataset_id == dataset_id,
+                CellObject.attr_key == variable
             )
             result = await self.db.execute(stmt)
             row = result.first()
@@ -159,8 +159,9 @@ class ZonalStatsService:
 
         # Mean
         if StatisticMethod.MEAN in operations:
-            stmt = base_query.with_only_columns(
-                func.avg(CellObject.value_num).label("mean")
+            stmt = select(func.avg(CellObject.value_num).label("mean")).where(
+                CellObject.dataset_id == dataset_id,
+                CellObject.attr_key == variable
             )
             result = await self.db.execute(stmt)
             row = result.first()
@@ -168,18 +169,22 @@ class ZonalStatsService:
 
         # Median
         if StatisticMethod.MEDIAN in operations:
-            # Use PERCENTILE_CONT for median (50th percentile)
-            stmt = select(
-                func.percentile_cont(0.5).label("median")
-            ).select_from(base_query.subquery())
-            result = await self.db.execute(stmt)
+            median_stmt = text("""
+                SELECT PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY value_num)
+                FROM cell_objects
+                WHERE dataset_id = :dataset_id AND attr_key = :variable AND value_num IS NOT NULL
+            """)
+            result = await self.db.execute(median_stmt, {
+                "dataset_id": str(dataset_id), "variable": variable
+            })
             row = result.first()
             results["median"] = float(row[0]) if row and row[0] is not None else 0.0
 
         # Min
         if StatisticMethod.MIN in operations:
-            stmt = base_query.with_only_columns(
-                func.min(CellObject.value_num).label("min")
+            stmt = select(func.min(CellObject.value_num).label("min")).where(
+                CellObject.dataset_id == dataset_id,
+                CellObject.attr_key == variable
             )
             result = await self.db.execute(stmt)
             row = result.first()
@@ -187,8 +192,9 @@ class ZonalStatsService:
 
         # Max
         if StatisticMethod.MAX in operations:
-            stmt = base_query.with_only_columns(
-                func.max(CellObject.value_num).label("max")
+            stmt = select(func.max(CellObject.value_num).label("max")).where(
+                CellObject.dataset_id == dataset_id,
+                CellObject.attr_key == variable
             )
             result = await self.db.execute(stmt)
             row = result.first()
@@ -196,8 +202,9 @@ class ZonalStatsService:
 
         # StdDev
         if StatisticMethod.STDDEV in operations:
-            stmt = base_query.with_only_columns(
-                func.stddev(CellObject.value_num).label("stddev")
+            stmt = select(func.stddev(CellObject.value_num).label("stddev")).where(
+                CellObject.dataset_id == dataset_id,
+                CellObject.attr_key == variable
             )
             result = await self.db.execute(stmt)
             row = result.first()
@@ -205,19 +212,20 @@ class ZonalStatsService:
 
         # Variance
         if StatisticMethod.VARIANCE in operations:
-            # VAR = STDDEV^2
-            stmt = base_query.with_only_columns(
-                func.stddev(CellObject.value_num).label("stddev")
+            stmt = select(func.variance(CellObject.value_num).label("variance")).where(
+                CellObject.dataset_id == dataset_id,
+                CellObject.attr_key == variable
             )
             result = await self.db.execute(stmt)
             row = result.first()
-            stddev = float(row[0]) if row and row[0] is not None else 0.0
-            results["variance"] = stddev * stddev if stddev > 0 else 0.0
+            results["variance"] = float(row[0]) if row and row[0] is not None else 0.0
 
         # Count
         if StatisticMethod.COUNT in operations:
-            stmt = base_query.with_only_columns(
-                func.count().label("count")
+            stmt = select(func.count().label("count")).where(
+                CellObject.dataset_id == dataset_id,
+                CellObject.attr_key == variable,
+                CellObject.value_num.isnot(None)
             )
             result = await self.db.execute(stmt)
             row = result.first()
@@ -246,65 +254,66 @@ class ZonalStatsService:
         # Percentiles
         if StatisticMethod.PERCENTILE in operations:
             for pct in percentile_bins or [25, 50, 75, 90]:
-                stmt = select(
-                    func.percentile_cont(pct / 100.0).label(f"p{pct}")
-                ).select_from(base_query.subquery())
-                result = await self.db.execute(stmt)
+                pct_stmt = text("""
+                    SELECT PERCENTILE_CONT(:pct_frac) WITHIN GROUP (ORDER BY value_num)
+                    FROM cell_objects
+                    WHERE dataset_id = :dataset_id AND attr_key = :variable AND value_num IS NOT NULL
+                """)
+                result = await self.db.execute(pct_stmt, {
+                    "dataset_id": str(dataset_id), "variable": variable,
+                    "pct_frac": pct / 100.0
+                })
                 row = result.first()
                 results[f"percentile_{pct}"] = float(row[0]) if row and row[0] is not None else 0.0
 
         # Histogram
         if StatisticMethod.HISTOGRAM in operations:
-            # For numeric values, create bins
-            # First get min/max for binning
-            min_max_stmt = base_query.with_only_columns(
-                    func.min(CellObject.value_num).label("min_val"),
-                    func.max(CellObject.value_num).label("max_val")
-                )
-            min_max_result = await self.db.execute(min_max_stmt)
-            min_val = 0.0
-            max_val = 1.0
-            for row in min_max_result:
-                if row[0] is not None:
-                    min_val = min(min_val, float(row[0]))
-                if row[1] is not None:
-                    max_val = max(max_val, float(row[1]))
+            # Get min/max for binning
+            minmax_stmt = text("""
+                SELECT MIN(value_num), MAX(value_num)
+                FROM cell_objects
+                WHERE dataset_id = :dataset_id AND attr_key = :variable AND value_num IS NOT NULL
+            """)
+            minmax_result = await self.db.execute(minmax_stmt, {
+                "dataset_id": str(dataset_id), "variable": variable
+            })
+            minmax_row = minmax_result.first()
 
-            # If no range, use defaults
+            min_val = float(minmax_row[0]) if minmax_row and minmax_row[0] is not None else 0.0
+            max_val = float(minmax_row[1]) if minmax_row and minmax_row[1] is not None else 1.0
+
             if max_val <= min_val:
                 min_val, max_val = 0.0, 1.0
 
-            bin_width = (max_val - min_val) / histogram_bins if max_val > min_val else 1.0
+            bin_width = (max_val - min_val) / histogram_bins
 
-            bin_query = text(f"""
-                WITH bins AS (
-                    SELECT FLOOR((value_num - :min_val) / :bin_width) AS bin_num,
-                           COUNT(*) AS count
-                    FROM cell_objects
-                    WHERE dataset_id = :dataset_id
-                        AND attr_key = :variable
-                        AND value_num IS NOT NULL
-                    GROUP BY FLOOR((value_num - :min_val) / :bin_width)
-                )
-                SELECT bin_num, :min_val + (bin_num * :bin_width), COUNT
-                FROM bins
+            bin_query = text("""
+                SELECT
+                    FLOOR((value_num - :min_val) / :bin_width) AS bin_num,
+                    :min_val + (FLOOR((value_num - :min_val) / :bin_width) * :bin_width) AS bin_start,
+                    COUNT(*) AS count
+                FROM cell_objects
+                WHERE dataset_id = :dataset_id
+                    AND attr_key = :variable
+                    AND value_num IS NOT NULL
+                GROUP BY FLOOR((value_num - :min_val) / :bin_width)
                 ORDER BY bin_num
             """)
 
             result = await self.db.execute(bin_query, {
-                "dataset_id": dataset_id,
+                "dataset_id": str(dataset_id),
                 "variable": variable,
                 "min_val": min_val,
-                "bin_width": bin_width,
-                "histogram_bins": histogram_bins
+                "bin_width": bin_width
             })
 
             histogram = []
             for row in result:
+                bin_start = float(row[1])
                 histogram.append({
-                    "bin_start": float(row[1]),
-                    "bin_end": float(row[2]),
-                    "count": int(row[3])
+                    "bin_start": bin_start,
+                    "bin_end": bin_start + bin_width,
+                    "count": int(row[2])
                 })
 
             results["histogram"] = {
@@ -325,13 +334,8 @@ class ZonalStatsService:
 
         Returns Pearson correlation coefficients for all variable pairs.
         """
-        from sqlalchemy import cast, Float
-
         if len(variables) < 2:
             raise ValueError("Need at least 2 variables for correlation")
-
-        from app.dggal_utils import get_dggal_service
-        dggs = get_dggal_service()
 
         results = {
             "variables": variables,
@@ -384,25 +388,9 @@ class ZonalStatsService:
 
         For each cell, computes the Gi* z-score by comparing the local
         neighborhood sum to the expected value under spatial randomness.
-
-        Gi* = (Σwij*xj - x̄*Σwij) / (S * sqrt((N*Σwij² - (Σwij)²) / (N-1)))
-
-        Args:
-            dataset_id: Dataset to analyze
-            variable: Attribute key for values
-            mask_dataset_id: Optional mask dataset
-            radius: K-ring radius for neighborhood (1-10)
-            method: Analysis method ("getis_ord")
-
-        Returns:
-            Hotspot results with z-scores per cell
         """
-        import uuid
-
         radius = max(1, min(radius, 10))
 
-        # Getis-Ord Gi* using K-ring neighborhood from topology
-        # Uses recursive CTE to build K-ring, then computes Gi* z-score
         stmt = text("""
             WITH global_stats AS (
                 SELECT
@@ -415,7 +403,6 @@ class ZonalStatsService:
                     AND value_num IS NOT NULL
             ),
             kring AS (
-                -- Build K-ring neighborhood for each cell
                 SELECT DISTINCT c.dggid AS center, t.neighbor_dggid AS neighbor
                 FROM cell_objects c
                 JOIN dgg_topology t ON c.dggid = t.dggid
@@ -464,7 +451,6 @@ class ZonalStatsService:
         hotspots = []
         for row in result:
             z = float(row[7]) if row[7] is not None else 0.0
-            # Classify significance: |z| > 2.58 = 99%, > 1.96 = 95%, > 1.65 = 90%
             if abs(z) >= 2.58:
                 significance = "p < 0.01"
             elif abs(z) >= 1.96:
@@ -496,12 +482,6 @@ class ZonalStatsService:
         }
 
 
-# Singleton instance
-_zonal_stats_service = None
-
 def get_zonal_stats_service(db: AsyncSession) -> ZonalStatsService:
-    """Get or create singleton ZonalStatsService instance."""
-    global _zonal_stats_service
-    if _zonal_stats_service is None:
-        _zonal_stats_service = ZonalStatsService(db)
-    return _zonal_stats_service
+    """Get a ZonalStatsService instance."""
+    return ZonalStatsService(db)

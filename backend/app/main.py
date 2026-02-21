@@ -14,10 +14,8 @@ from app.config import settings
 from app.init_db import init_db
 from app.seed import seed_admin
 from app.services.result_cleanup import run_result_cleanup_loop
-from app.exceptions import setup_global_handlers, RequestIdMiddleware, validate_settings
+from app.exceptions import setup_global_handlers, RequestIdMiddleware
 from app.logging_config import setup_logging, RequestLoggingMiddleware, log_performance
-
-logger = logging.getLogger(__name__)
 
 # Set up structured logging
 setup_logging()
@@ -80,9 +78,6 @@ async def lifespan(app: FastAPI):
         run_result_cleanup_loop(settings.RESULT_TTL_HOURS, settings.RESULT_CLEANUP_INTERVAL_MINUTES)
     )
 
-    # Data loading moved to external 'data-init' service
-    # See app/scripts/init_data.py
-
     logger.info("Startup complete. Server ready.")
 
     yield
@@ -103,10 +98,6 @@ setup_global_handlers(app)
 # Add request ID middleware for tracing
 app.add_middleware(RequestIdMiddleware)
 
-# Add request logging middleware (configured via ENVIRONMENT)
-request_logger = RequestLoggingMiddleware(app, enabled=settings.ENVIRONMENT != "development")
-app.add_middleware(request_logger)
-
 # Rate limiting (updated to use per-user limiting)
 from app.rate_limiter import get_per_user_limiter
 limiter = get_per_user_limiter()
@@ -119,21 +110,6 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
-)
-
-# Apply rate limiting to all routes
-app.add_middleware(
-    limiter,
-    exempt_routes=[
-        "/api/health",
-        "/metrics",
-        "/docs",
-        "/openapi.json",
-        "/dggal",
-        "/assets",
-        "/api/auth/login",  # Allow login
-        "/api/auth/register"  # Allow registration
-    ]
 )
 
 from app.routers import (
@@ -175,7 +151,7 @@ async def health_check():
     Returns status of database and topology population.
     """
     from app.db import AsyncSessionLocal
-    from sqlalchemy import select, text
+    from sqlalchemy import text
 
     try:
         async with AsyncSessionLocal() as session:
@@ -183,21 +159,24 @@ async def health_check():
             await session.execute(text("SELECT 1"))
 
             # Check topology population
-            topo_result = await session.fetchrow("SELECT COUNT(*) FROM dgg_topology")
-            topo_count = topo_result[0] if topo_result else 0
+            topo_result = await session.execute(text("SELECT COUNT(*) FROM dgg_topology"))
+            topo_count = topo_result.scalar() or 0
             is_populated = topo_count > 0
 
             # Get data counts
-            ds_count = await session.fetchrow("SELECT COUNT(*) FROM datasets")
-            cell_count = await session.fetchrow("SELECT COUNT(*) FROM cell_objects")
+            ds_result = await session.execute(text("SELECT COUNT(*) FROM datasets"))
+            ds_count = ds_result.scalar() or 0
+
+            cell_result = await session.execute(text("SELECT COUNT(*) FROM cell_objects"))
+            cell_count = cell_result.scalar() or 0
 
             return JSONResponse({
                 "status": "ok",
                 "database": "connected",
                 "topology_populated": is_populated,
                 "topology_rows": topo_count,
-                "datasets": ds_count[0] if ds_count else 0,
-                "cells": cell_count[0] if cell_count else 0
+                "datasets": ds_count,
+                "cells": cell_count
             })
     except Exception as e:
         logger.error(f"Health check failed: {e}")
@@ -224,8 +203,6 @@ async def database_health():
     )
 
 # Serve Frontend
-# Determine path to frontend/dist relative to this file
-# app/main.py -> app -> backend -> repo root -> frontend/dist
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
 frontend_dist = BASE_DIR / "frontend" / "dist"
 
@@ -239,17 +216,13 @@ if frontend_dist.exists():
 
     @app.get("/{full_path:path}")
     async def serve_spa(full_path: str):
-        # Allow API calls to pass through (and fail with 404 if not found)
-        # Also exclude metrics or docs if needed, but docs is /docs by default
         if full_path.startswith("api") or full_path.startswith("metrics") or full_path.startswith("docs") or full_path.startswith("openapi.json"):
             raise HTTPException(status_code=404, detail="Not Found")
 
-        # Check if a static file exists (e.g. favicon.svg, logo.svg)
         file_path = frontend_dist / full_path
         if file_path.is_file():
             return FileResponse(file_path)
 
-        # Fallback to index.html for SPA routing
         return FileResponse(frontend_dist / "index.html")
 else:
     logger.warning(f"Frontend dist not found at {frontend_dist}, API only mode")

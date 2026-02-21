@@ -4,7 +4,7 @@ from typing import Optional, List
 from app.dggal_utils import get_dggal_service
 from app.auth import get_current_user
 
-router = APIRouter(prefix="/api/ops", tags=["topology"])
+router = APIRouter(prefix="/api/topology", tags=["topology"])
 
 class SpatialOpRequest(BaseModel):
     type: str

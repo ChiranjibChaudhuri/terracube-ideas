@@ -55,11 +55,16 @@ class DataCubeService:
         import uuid
 
         # Get source dataset metadata
-        source_ds = await self.db.get(select(Dataset).where(Dataset.id == source_dataset_id))
+        import uuid as uuid_mod
+        try:
+            source_uuid = uuid_mod.UUID(source_dataset_id) if isinstance(source_dataset_id, str) else source_dataset_id
+        except ValueError:
+            raise ValueError(f"Invalid source dataset ID: {source_dataset_id}")
+
+        result = await self.db.execute(select(Dataset).where(Dataset.id == source_uuid))
+        source_ds = result.scalars().first()
         if not source_ds:
             raise ValueError(f"Source dataset not found: {source_dataset_id}")
-
-        source_ds = source_ds.first()
 
         # Validate target_level is coarser
         if target_level >= (source_ds.level or 10):
@@ -114,7 +119,7 @@ class DataCubeService:
 
         except Exception as e:
             await self.db.rollback()
-            self.db.execute(
+            await self.db.execute(
                 text("DELETE FROM datasets WHERE id = :id"),
                 {"id": str(new_id)}
             )
@@ -268,11 +273,16 @@ class DataCubeService:
         import uuid
 
         # Get source dataset
-        source_ds = await self.db.get(select(Dataset).where(Dataset.id == dataset_id))
+        import uuid as uuid_mod
+        try:
+            ds_uuid = uuid_mod.UUID(dataset_id) if isinstance(dataset_id, str) else dataset_id
+        except ValueError:
+            raise ValueError(f"Invalid dataset ID: {dataset_id}")
+
+        ds_result = await self.db.execute(select(Dataset).where(Dataset.id == ds_uuid))
+        source_ds = ds_result.scalars().first()
         if not source_ds:
             raise ValueError(f"Dataset not found: {dataset_id}")
-
-        source_ds = source_ds.first()
 
         result = {}
         current_id = dataset_id
@@ -312,16 +322,27 @@ class DataCubeService:
         import uuid
 
         # Get dataset info
-        ds = await self.db.get(select(Dataset).where(Dataset.id == dataset_id))
+        import uuid as uuid_mod
+        import re
+
+        try:
+            ds_uuid = uuid_mod.UUID(dataset_id) if isinstance(dataset_id, str) else dataset_id
+        except ValueError:
+            raise ValueError(f"Invalid dataset ID: {dataset_id}")
+
+        ds_result = await self.db.execute(select(Dataset).where(Dataset.id == ds_uuid))
+        ds = ds_result.scalars().first()
         if not ds:
             raise ValueError(f"Dataset not found: {dataset_id}")
 
-        ds = ds.first()
-
         view_names = []
 
-        # Materialized view for fast cell lookup by dggid
-        mv_name = f"mv_cells_{str(dataset_id)}"
+        # Sanitize dataset_id for use in identifiers (only allow hex and hyphens from UUID)
+        safe_id = str(ds_uuid).replace("-", "_")
+        if not re.match(r'^[a-f0-9_]+$', safe_id):
+            raise ValueError(f"Invalid dataset ID for view name: {dataset_id}")
+
+        mv_name = f"mv_cells_{safe_id}"
         try:
             await self.db.execute(text(f"DROP MATERIALIZED VIEW IF EXISTS {mv_name}"))
             await self.db.commit()
@@ -332,7 +353,7 @@ class DataCubeService:
                 SELECT id, dataset_id, dggid, tid, attr_key, value_text, value_num, value_json, created_at
                 FROM cell_objects
                 WHERE dataset_id = :dataset_id
-            """), {"dataset_id": dataset_id})
+            """), {"dataset_id": str(ds_uuid)})
 
             # Create index for common query pattern (dggid lookup)
             await self.db.execute(text(f"""
@@ -361,19 +382,25 @@ class DataCubeService:
         """
         from app.models import Dataset
 
-        ds = await self.db.get(select(Dataset).where(Dataset.id == dataset_id))
+        import uuid as uuid_mod
+        try:
+            ds_uuid = uuid_mod.UUID(dataset_id) if isinstance(dataset_id, str) else dataset_id
+        except ValueError:
+            return {}
+
+        ds_result = await self.db.execute(select(Dataset).where(Dataset.id == ds_uuid))
+        ds = ds_result.scalars().first()
         if not ds:
             return {}
 
-        ds = ds.first()
-
         # Check for precomputed pyramid
         pyramid = {}
-        if ds.metadata and isinstance(ds.metadata, dict):
-            pyramid = ds.metadata.get("resolution_pyramid", {})
+        meta = getattr(ds, 'metadata_', None) or {}
+        if isinstance(meta, dict):
+            pyramid = meta.get("resolution_pyramid", {})
 
         # Check for materialized views
-        views = ds.metadata.get("materialized_views", [])
+        views = meta.get("materialized_views", []) if isinstance(meta, dict) else []
 
         return {
             "dataset_id": str(ds.id),
@@ -385,12 +412,6 @@ class DataCubeService:
         }
 
 
-# Singleton instance
-_datacube_service = None
-
-def get_datacube_service(dggs_name: str = "IVEA3H") -> DataCubeService:
-    """Get or create singleton DataCubeService instance."""
-    global _datacube_service
-    if _datacube_service is None or _datacube_service.dggs.dggrs != dggs_name:
-        _datacube_service = DataCubeService(dggs_name=get_dggal_service(dggs_name))
-    return _datacube_service
+def get_datacube_service(db: AsyncSession, dggs_name: str = "IVEA3H") -> DataCubeService:
+    """Create a DataCubeService instance for the given session."""
+    return DataCubeService(db=db, dggs_name=dggs_name)

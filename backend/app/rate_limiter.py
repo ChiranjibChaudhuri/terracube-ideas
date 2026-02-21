@@ -81,8 +81,8 @@ async def get_user_role(user_id: str) -> Optional[str]:
             return None
 
         result = await db.execute(select(User.role).where(User.id == user_uuid))
-        user = result.scalar_one_or_none()
-        return user.role if user else None
+        role = result.scalar_one_or_none()
+        return role
 
 
 async def get_rate_limit_for_user(request: Request) -> int:
@@ -127,7 +127,7 @@ class PerUserLimiter:
             default_limits=[self.default_limits],
             exempt_routes=self.exempt_routes,
             storage_uri=storage_uri,
-            storage_options={"connect_args": {"decode_responses": True}
+            storage_options={"connect_args": {"decode_responses": True}}
         )
 
     async def _get_key(self, request: Request) -> str:

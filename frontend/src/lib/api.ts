@@ -143,28 +143,28 @@ export const runSpatialOperation = async (payload: Record<string, unknown>) => {
 };
 
 export const getNeighbors = async (dggid: string, dggsName?: string) => {
-    return apiFetch('/api/ops/topology', {
+    return apiFetch('/api/topology/topology', {
         method: 'POST',
         body: JSON.stringify({ type: 'neighbors', dggid, dggsName }),
     });
 };
 
 export const getParent = async (dggid: string, dggsName?: string) => {
-    return apiFetch('/api/ops/topology', {
+    return apiFetch('/api/topology/topology', {
         method: 'POST',
         body: JSON.stringify({ type: 'parent', dggid, dggsName }),
     });
 };
 
 export const getChildren = async (dggid: string, dggsName?: string) => {
-    return apiFetch('/api/ops/topology', {
+    return apiFetch('/api/topology/topology', {
         method: 'POST',
         body: JSON.stringify({ type: 'children', dggid, dggsName }),
     });
 };
 
 export const getVertices = async (dggid: string, dggsName?: string) => {
-    return apiFetch('/api/ops/topology', {
+    return apiFetch('/api/topology/topology', {
         method: 'POST',
         body: JSON.stringify({ type: 'vertices', dggid, dggsName }),
     });
@@ -180,7 +180,7 @@ export const listZonesFromBackend = async (
     dggsName?: string,
     maxZones?: number
 ): Promise<{ level: number; zoneCount: number; zones: string[] }> => {
-    return apiFetch('/api/ops/list_zones', {
+    return apiFetch('/api/topology/list_zones', {
         method: 'POST',
         body: JSON.stringify({ level, bbox, dggsName, maxZones }),
     });

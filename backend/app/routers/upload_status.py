@@ -2,7 +2,7 @@
 Upload status polling endpoint.
 Allows frontend to check the status of an upload/job.
 """
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select

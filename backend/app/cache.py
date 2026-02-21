@@ -84,7 +84,7 @@ class RedisCache(CacheBackend):
             except Exception as e:
                 logger.error(f"Failed to connect to Redis: {e}")
                 self._connected = False
-        raise
+                raise
         return self._client
 
     def _make_key(self, prefix: str, key: str) -> str:
@@ -114,8 +114,8 @@ class RedisCache(CacheBackend):
             serialized = json.dumps(value)
             await self._client.setex(
                 self._make_key("", key),
-                serialized,
-                ex=ttl
+                ttl,
+                serialized
             )
         except Exception as e:
             logger.warning(f"Cache set error for {key}: {e}")
@@ -188,7 +188,7 @@ class MemoryCache(CacheBackend):
     async def delete_pattern(self, pattern: str) -> None:
         """Delete all keys matching pattern."""
         import fnmatch
-        keys_to_delete = [k for k in self._cache.keys() if fnmatch.fnmatch(pattern, k)]
+        keys_to_delete = [k for k in self._cache.keys() if fnmatch.fnmatch(k, pattern)]
         for key in keys_to_delete:
             del self._cache[key]
 

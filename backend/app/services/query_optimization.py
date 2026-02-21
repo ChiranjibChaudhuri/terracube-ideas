@@ -5,14 +5,24 @@ Provides materialized view management and query caching
 to optimize common DGGS query patterns.
 """
 
-import asyncio
+import re
+import logging
 from typing import List, Optional, Dict, Any
-from sqlalchemy import text
+from sqlalchemy import text, select, func
 from sqlalchemy.ext.asyncio import AsyncSession
-from app.db import get_db_pool
+from app.models import Dataset, CellObject
 import logging
 
 logger = logging.getLogger(__name__)
+
+
+def _sanitize_identifier(raw: str) -> str:
+    """Sanitize a string for use as a SQL identifier (view/index name).
+    Only allows alphanumeric and underscores."""
+    sanitized = re.sub(r'[^a-zA-Z0-9_]', '_', raw)
+    if not sanitized or not sanitized[0].isalpha():
+        sanitized = "v_" + sanitized
+    return sanitized[:128]
 
 
 class QueryOptimizationService:
@@ -34,14 +44,11 @@ class QueryOptimizationService:
     async def create_materialized_view(
         self,
         dataset_id: str,
-        view_name: Optional[str] = None
+        view_name: Optional[str] = None,
         refresh: bool = False
     ) -> str:
         """
         Create a materialized view for a dataset's cell_objects.
-
-        Materialized views store pre-computed results and automatically refresh,
-        providing significantly faster queries for common access patterns.
 
         Args:
             dataset_id: Dataset to materialize
@@ -51,7 +58,6 @@ class QueryOptimizationService:
         Returns:
             Name of created materialized view
         """
-        from app.models import Dataset, CellObject
         import uuid
 
         try:
@@ -60,19 +66,22 @@ class QueryOptimizationService:
             raise ValueError(f"Invalid dataset_id: {dataset_id}")
 
         # Check if dataset exists
-        ds = await self.db.get(select(Dataset).where(Dataset.id == ds_uuid))
+        result = await self.db.execute(select(Dataset).where(Dataset.id == ds_uuid))
+        ds = result.scalars().first()
         if not ds:
             raise ValueError(f"Dataset not found: {dataset_id}")
 
-        view_name = view_name or f"mv_cells_{dataset_id}"
+        # Sanitize view name for SQL identifier safety
+        safe_id = str(ds_uuid).replace("-", "_")
+        view_name = _sanitize_identifier(view_name) if view_name else f"mv_cells_{safe_id}"
 
         # Drop existing view if refreshing
         if refresh:
             try:
-                await self.db.execute(text(f'DROP MATERIALIZED VIEW IF EXISTS {view_name}'))
+                await self.db.execute(text(f"DROP MATERIALIZED VIEW IF EXISTS {view_name}"))
                 logger.info(f"Dropped materialized view {view_name} for refresh")
             except Exception:
-                pass  # Ignore if doesn't exist
+                pass
 
         # Create materialized view
         await self.db.execute(text(f"""
@@ -81,19 +90,21 @@ class QueryOptimizationService:
                 id, dataset_id, dggid, tid, attr_key, value_text, value_num, value_json, created_at
             FROM cell_objects
             WHERE dataset_id = :dataset_id
-            WITH DATA;
+            WITH DATA
+        """), {"dataset_id": str(ds_uuid)})
 
-            CREATE UNIQUE INDEX idx_{view_name}_dggid ON {view_name} (dggid);
-            CREATE INDEX idx_{view_name}_tid ON {view_name} (tid);
-            CREATE INDEX idx_{view_name}_attr_key ON {view_name} (attr_key);
-            CREATE INDEX idx_{view_name}_dataset_id ON {view_name} (dataset_id);
-        """), {"dataset_id": ds_uuid})
+        # Create indexes separately (can't mix DDL with params in one statement)
+        await self.db.execute(text(
+            f"CREATE INDEX IF NOT EXISTS idx_{view_name}_dggid ON {view_name} (dggid)"
+        ))
+        await self.db.execute(text(
+            f"CREATE INDEX IF NOT EXISTS idx_{view_name}_tid ON {view_name} (tid)"
+        ))
+        await self.db.execute(text(
+            f"CREATE INDEX IF NOT EXISTS idx_{view_name}_attr_key ON {view_name} (attr_key)"
+        ))
 
         logger.info(f"Created materialized view {view_name} for dataset {dataset_id}")
-
-        # Grant necessary permissions
-        await self.db.execute(text(f"GRANT SELECT ON {view_name} TO PUBLIC;"))
-
         return view_name
 
     async def create_aggregated_view(
@@ -105,11 +116,7 @@ class QueryOptimizationService:
     ) -> str:
         """
         Create a materialized view with pre-aggregated data at a coarser level.
-
-        This enables fast zooming without on-the-fly aggregation.
         """
-        from app.models import Dataset, CellObject
-        from app.dggal_utils import get_dggal_service
         import uuid
 
         try:
@@ -118,74 +125,66 @@ class QueryOptimizationService:
             raise ValueError(f"Invalid source dataset_id: {source_dataset_id}")
 
         # Get source dataset
-        source_ds = await self.db.get(select(Dataset).where(Dataset.id == source_uuid))
+        result = await self.db.execute(select(Dataset).where(Dataset.id == source_uuid))
+        source_ds = result.scalars().first()
         if not source_ds:
             raise ValueError(f"Source dataset not found: {source_dataset_id}")
 
-        # Get target level from source
         source_level = source_ds.level or 0
         if target_level >= source_level:
             raise ValueError(f"Target level {target_level} must be coarser than source level {source_level}")
 
-        view_name = view_name or f"mv_agg_{source_dataset_id}_L{target_level}_{agg_method}"
+        # Sanitize and build view name
+        safe_id = str(source_uuid).replace("-", "_")
+        view_name = _sanitize_identifier(view_name) if view_name else f"mv_agg_{safe_id}_L{target_level}_{agg_method}"
 
         # Drop existing view
         try:
-            await self.db.execute(text(f'DROP MATERIALIZED VIEW IF EXISTS {view_name}'))
+            await self.db.execute(text(f"DROP MATERIALIZED VIEW IF EXISTS {view_name}"))
         except Exception:
-            pass  # Ignore if doesn't exist
+            pass
 
-        # Get DGGS service for parent lookups
-        dggs = get_dggal_service(source_ds.dggs_name or "IVEA3H")
+        # Build aggregation SQL based on method (whitelist approach)
+        agg_funcs = {
+            "mean": "AVG",
+            "sum": "SUM",
+            "min": "MIN",
+            "max": "MAX",
+            "count": "COUNT",
+        }
 
-        # Build aggregation SQL based on method
-        if agg_method == "mean":
-            agg_func = "AVG(child.value_num)"
-        elif agg_method == "sum":
-            agg_func = "SUM(child.value_num)"
-        elif agg_method == "min":
-            agg_func = "MIN(child.value_num)"
-        elif agg_method == "max":
-            agg_func = "MAX(child.value_num)"
-        elif agg_method == "count":
-            agg_func = "COUNT(child.value_num)"
-        elif agg_method == "mode":
-            # Most frequent value (mode)
-            agg_func = "MODE() WITHIN ORDER BY (child.value_num) DESC, LIMIT 1) AS mode_val"
-        else:
-            raise ValueError(f"Unsupported aggregation method: {agg_method}")
+        if agg_method not in agg_funcs:
+            raise ValueError(f"Unsupported aggregation method: {agg_method}. Must be one of {list(agg_funcs.keys())}")
 
-        # Create materialized aggregated view
+        sql_func = agg_funcs[agg_method]
+
+        # Create materialized aggregated view using topology parent lookup
         await self.db.execute(text(f"""
             CREATE MATERIALIZED VIEW {view_name} AS
             SELECT
-                parent.dggid, 0, a.attr_key,
-                {agg_func}, NULL, NULL, NULL,
-                child.created_at
-            FROM (
-                SELECT
-                    child.dggid, child.tid, child.attr_key, child.value_num, child.value_text, child.value_json, child.created_at
-                FROM cell_objects child
-                INNER JOIN dgg_topology parent ON child.dggid = parent.parent_dggid
-                WHERE child.dataset_id = :source_id
-                    AND parent.level = :target_level
-            ) AS parent
-            INNER JOIN LATERAL (
-                SELECT parent.dggid, COUNT(*) OVER (PARTITION BY parent.dggid) as cell_count
-                FROM parent
-            ) AS stats ON parent.dggid = stats.dggid
-            WITH DATA;
+                t.parent_dggid AS dggid,
+                0 AS tid,
+                c.attr_key,
+                {sql_func}(c.value_num) AS value_num,
+                NULL::text AS value_text,
+                NULL::jsonb AS value_json
+            FROM cell_objects c
+            JOIN dgg_topology t ON c.dggid = t.dggid
+            WHERE c.dataset_id = :source_id
+                AND t.parent_dggid IS NOT NULL
+                AND c.value_num IS NOT NULL
+            GROUP BY t.parent_dggid, c.attr_key
+            WITH DATA
+        """), {"source_id": str(source_uuid)})
 
-            CREATE UNIQUE INDEX idx_{view_name}_dggid ON {view_name} (dggid);
-            CREATE INDEX idx_{view_name}_attr_key ON {view_name} (attr_key);
-        """), {
-            "source_dataset_id": source_uuid,
-            "target_level": target_level,
-            "agg_method": agg_method
-        })
+        await self.db.execute(text(
+            f"CREATE INDEX IF NOT EXISTS idx_{view_name}_dggid ON {view_name} (dggid)"
+        ))
+        await self.db.execute(text(
+            f"CREATE INDEX IF NOT EXISTS idx_{view_name}_attr_key ON {view_name} (attr_key)"
+        ))
 
         logger.info(f"Created aggregated view {view_name}: source {source_uuid} L{source_level} -> {target_level} ({agg_method})")
-
         return view_name
 
     async def get_query_plan(
@@ -194,16 +193,19 @@ class QueryOptimizationService:
     ) -> Dict[str, Any]:
         """
         Get query execution plan from PostgreSQL EXPLAIN.
-
-        Useful for analyzing and optimizing slow queries.
+        Only allows SELECT statements for safety.
         """
+        # Security: only allow EXPLAIN on SELECT statements
+        stripped = sql.strip().upper()
+        if not stripped.startswith("SELECT"):
+            raise ValueError("EXPLAIN is only supported for SELECT statements")
+
         try:
-            result = await self.db.execute(text(f"EXPLAIN (ANALYZE, BUFFERS) {sql}"))
-            plan = [dict(row) for row in result]
+            result = await self.db.execute(text(f"EXPLAIN (FORMAT JSON) {sql}"))
+            plan = [dict(row._mapping) for row in result]
             return {
                 "sql": sql,
-                "plan": plan,
-                "cost": sum(row.get("total_cost", 0) for row in plan if row.get("total_cost"))
+                "plan": plan
             }
         except Exception as e:
             logger.error(f"Query plan failed: {e}")
@@ -218,10 +220,8 @@ class QueryOptimizationService:
     ) -> Dict[str, Any]:
         """
         Analyze query patterns and performance for a dataset.
-
         Returns recommendations for optimization.
         """
-        from app.models import Dataset, CellObject
         import uuid
 
         try:
@@ -230,68 +230,46 @@ class QueryOptimizationService:
             raise ValueError(f"Invalid dataset_id: {dataset_id}")
 
         # Get dataset info
-        ds = await self.db.get(select(Dataset).where(Dataset.id == ds_uuid))
+        result = await self.db.execute(select(Dataset).where(Dataset.id == ds_uuid))
+        ds = result.scalars().first()
         if not ds:
             raise ValueError(f"Dataset not found: {dataset_id}")
 
-        # Get cell count
+        # Get cell count using proper SQLAlchemy
         count_result = await self.db.execute(
-            select(text("COUNT(*)")).where(CellObject.dataset_id == ds_uuid)
+            select(func.count()).select_from(CellObject).where(CellObject.dataset_id == ds_uuid)
         )
         cell_count = count_result.scalar() or 0
 
         # Check for existing materialized views
+        safe_pattern = f"mv_cells_{str(ds_uuid).replace('-', '_')}%"
         views_result = await self.db.execute(text("""
             SELECT schemaname, matviewname
             FROM pg_matviews
             WHERE schemaname = 'public'
                 AND matviewname LIKE :pattern
-        """), {"pattern": f"mv_cells_{ds_uuid}%"})
+        """), {"pattern": safe_pattern})
 
-        has_materialized = views_result.rowcount() > 0
+        has_materialized = views_result.rowcount > 0
 
         # Get index information
         indexes_result = await self.db.execute(text("""
-            SELECT
-                indexname,
-                attname,
-                n_distinct,
-                idx_scan
+            SELECT indexname
             FROM pg_indexes
             WHERE schemaname = 'public'
                 AND tablename = 'cell_objects'
         """))
 
         indexes = []
-        index_count = 0
-        missing_indexes = []
-
         for row in indexes_result:
-            indexes.append({
-                "name": row[0],
-                "column": row[1],
-                "unique": row[2],
-                "scans": row[3]
-            })
-            index_count += 1
-
-        # Check for recommended indexes
-        if not any(idx["column"] == "dggid" for idx in indexes):
-            missing_indexes.append("dggid")
-
-        if not any(idx["column"] == "attr_key" for idx in indexes):
-            missing_indexes.append("attr_key")
-
-        if index_count == 0:
-            missing_indexes.append("dataset_id")
+            indexes.append({"name": row[0]})
 
         return {
             "dataset_id": dataset_id,
             "cell_count": cell_count,
             "has_materialized_view": has_materialized,
-            "index_count": index_count,
+            "index_count": len(indexes),
             "indexes": indexes,
-            "missing_indexes": missing_indexes,
             "recommendations": []
         }
 
@@ -301,16 +279,7 @@ class QueryOptimizationService:
         force: bool = False
     ) -> Dict[str, Any]:
         """
-        Apply optimizations to a dataset:
-        1. Create materialized view
-        2. Create recommended indexes
-
-        Args:
-            dataset_id: Dataset to optimize
-            force: Force optimization even if already materialized
-
-        Returns:
-            Optimization results with actions taken
+        Apply optimizations to a dataset.
         """
         results = {
             "dataset_id": dataset_id,
@@ -327,35 +296,9 @@ class QueryOptimizationService:
                 results["actions_taken"].append(f"Created materialized view: {view_name}")
                 results["materialized_view"] = view_name
 
-        # Create missing indexes
-        if analysis["missing_indexes"]:
-            # Check if table is large enough to justify indexes
-            if analysis["cell_count"] > 10000:  # 10k+ cells
-                for index_name in ["dggid", "attr_key", "dataset_id"]:
-                    await self.db.execute(text(f"""
-                        CREATE INDEX IF NOT EXISTS idx_cell_objects_{dataset_id}_{index_name}
-                        ON cell_objects (dataset_id, {index_name})
-                    """))
-                    results["actions_taken"].append(f"Created index: {index_name}")
-
-        # Update dataset metadata with optimization flags
-        from app.models import Dataset
-        metadata = analysis.get("recommendations", {})
-        if metadata:
-            # Store optimization timestamp
-            import datetime
-            metadata["optimized_at"] = datetime.datetime.now().isoformat()
-            results["metadata"] = metadata
-
         return results
 
 
-# Singleton instance
-_opt_service = None
-
 def get_optimization_service(db: AsyncSession) -> QueryOptimizationService:
-    """Get or create singleton QueryOptimizationService instance."""
-    global _opt_service
-    if _opt_service is None:
-        _opt_service = QueryOptimizationService(db)
-    return _opt_service
+    """Create a QueryOptimizationService instance for the given session."""
+    return QueryOptimizationService(db)

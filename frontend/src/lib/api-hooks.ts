@@ -1,5 +1,5 @@
 import { useQuery, useMutation } from '@tanstack/react-query';
-import { apiFetch, getUploadStatus, listUploads, exportDatasetCSV, exportDatasetGeoJSON } from './api';
+import { apiFetch, fetchDatasets, getUploadStatus, listUploads, exportDatasetCSV, exportDatasetGeoJSON } from './api';
 
 export interface UploadStatus {
     id: string;
@@ -9,6 +9,13 @@ export interface UploadStatus {
     dataset_id: string | null;
     created_at: string;
 }
+
+export const useDatasets = (search?: string) => {
+    return useQuery({
+        queryKey: ['datasets', search],
+        queryFn: () => fetchDatasets(search),
+    });
+};
 
 export const useUploads = (limit = 50, offset = 0, status?: string) => {
     return useQuery({

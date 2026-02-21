@@ -5,12 +5,10 @@ Allows users to share notes and mark cells with shared/private/public visibility
 for collaborative GIS analysis.
 """
 
-import asyncio
 from datetime import datetime
 from typing import List, Optional, Dict, Any
-from sqlalchemy import select, and_, or_
+from sqlalchemy import select, and_, or_, update, delete, func
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import func
 import logging
 
 logger = logging.getLogger(__name__)
@@ -60,14 +58,14 @@ class CollaborativeAnnotationService:
         """
         Create a new annotation on a cell.
         """
-        from app.models import Dataset
+        from app.models_annotations import Annotation, CellAnnotation, AnnotationShare
         import uuid
 
         # Validate inputs
         try:
             dataset_uuid = uuid.UUID(dataset_id)
         except ValueError:
-            raise ValueError(f"Invalid dataset_id format")
+            raise ValueError("Invalid dataset_id format")
 
         # Validate visibility
         valid_visibilities = [
@@ -89,55 +87,41 @@ class CollaborativeAnnotationService:
         if annotation_type not in valid_types:
             raise ValueError(f"Invalid annotation_type: {annotation_type}")
 
-        # Get creator from created_by (or use provided)
-        creator_id = created_by
-        if not creator_id and shared_with:
-            # Default to first shared user
-            creator_id = shared_with[0]
-
         # Generate annotation ID
         annotation_id = uuid.uuid4()
+        now = datetime.utcnow().isoformat()
 
-        # Insert annotation
-        from app.models import Annotation, CellAnnotation
-
-        async with self.db.begin():
-            # Create annotation record
-            annotation = Annotation(
-                id=annotation_id,
-                cell_dggid=cell_dggid,
-                dataset_id=dataset_uuid,
-                content=content,
-                annotation_type=annotation_type,
-                visibility=visibility,
-                created_by=creator_id
-            )
-            self.db.add(annotation)
-
-            # Create cell annotation record (for lookups)
-            cell_annotation = CellAnnotation(
-                annotation_id=annotation_id,
-                cell_dggid=cell_dggid
-            )
-
-            self.db.add(cell_annotation)
-
-            # Handle sharing
-            if visibility == AnnotationVisibility.SHARED and shared_with:
-                for user_id in shared_with:
-                    share = Annotation(
-                        id=uuid.uuid4(),
-                        annotation_id=annotation_id,
-                        shared_with=user_id
-                    )
-                    self.db.add(share)
-
-            await self.db.commit()
-
-        # Fetch created annotation with relations
-        result = await self.db.execute(
-            select(Annotation).where(Annotation.id == annotation_id)
+        # Create annotation record
+        annotation = Annotation(
+            id=annotation_id,
+            cell_dggid=cell_dggid,
+            dataset_id=dataset_uuid,
+            content=content,
+            annotation_type=annotation_type,
+            visibility=visibility,
+            created_by=created_by,
+            created_at=now
         )
+        self.db.add(annotation)
+
+        # Create cell annotation record (for lookups)
+        cell_annotation = CellAnnotation(
+            annotation_id=annotation_id,
+            cell_dggid=cell_dggid
+        )
+        self.db.add(cell_annotation)
+
+        # Handle sharing
+        if visibility == AnnotationVisibility.SHARED and shared_with:
+            for user_id in shared_with:
+                share = AnnotationShare(
+                    annotation_id=annotation_id,
+                    shared_with=user_id,
+                    created_at=now
+                )
+                self.db.add(share)
+
+        await self.db.commit()
 
         return {
             "id": str(annotation_id),
@@ -147,8 +131,8 @@ class CollaborativeAnnotationService:
             "type": annotation_type,
             "visibility": visibility,
             "shared_with": shared_with or [],
-            "created_by": creator_id,
-            "created_at": result["created_at"].isoformat() if result["created_at"] else None
+            "created_by": created_by,
+            "created_at": now
         }
 
     async def list_annotations(
@@ -163,23 +147,18 @@ class CollaborativeAnnotationService:
         """
         List annotations with optional filters.
         """
-        from app.models import Annotation, CellAnnotation, Dataset
+        from app.models_annotations import Annotation
         import uuid
 
         try:
             dataset_uuid = uuid.UUID(dataset_id)
         except ValueError:
-            raise ValueError(f"Invalid dataset_id format")
+            raise ValueError("Invalid dataset_id format")
 
         # Build query
         stmt = select(Annotation).where(Annotation.dataset_id == dataset_uuid)
 
         # Apply filters
-        if bbox and len(bbox) == 4:
-            # Filter by bbox - requires DGGAL for centroid lookup
-            # For now, fetch all and filter in Python
-            pass
-
         if visibility:
             stmt = stmt.where(Annotation.visibility == visibility)
 
@@ -192,18 +171,19 @@ class CollaborativeAnnotationService:
         stmt = stmt.order_by(Annotation.created_at.desc()).limit(limit)
 
         result = await self.db.execute(stmt)
+        rows = result.scalars().all()
 
         annotations = []
-        for row in result.mappings():
+        for row in rows:
             annotations.append({
-                "id": str(row["id"]),
-                "cell_dggid": row["cell_dggid"],
-                "dataset_id": row["dataset_id"],
-                "content": row["content"],
-                "type": row["annotation_type"],
-                "visibility": row["visibility"],
-                "created_by": str(row["created_by"]) if row["created_by"] else None,
-                "created_at": row["created_at"].isoformat() if row["created_at"] else None
+                "id": str(row.id),
+                "cell_dggid": row.cell_dggid,
+                "dataset_id": str(row.dataset_id),
+                "content": row.content,
+                "type": row.annotation_type,
+                "visibility": row.visibility,
+                "created_by": str(row.created_by) if row.created_by else None,
+                "created_at": row.created_at
             })
 
         return {
@@ -227,40 +207,37 @@ class CollaborativeAnnotationService:
         """
         Update an existing annotation (only for creator).
         """
-        from app.models import Annotation
+        from app.models_annotations import Annotation
         import uuid
 
         try:
             annotation_uuid = uuid.UUID(annotation_id)
         except ValueError:
-            raise ValueError(f"Invalid annotation_id format")
+            raise ValueError("Invalid annotation_id format")
 
         # Get existing annotation
         result = await self.db.execute(
             select(Annotation).where(Annotation.id == annotation_uuid)
         )
-        annotation = result.first()
+        annotation = result.scalars().first()
         if not annotation:
             raise ValueError(f"Annotation not found: {annotation_id}")
 
-        # Verify user is creator or shared with
-        is_owner = annotation.created_by == user_id
-        is_shared = user_id in (annotation.shared_with or [])
-
-        if not is_owner and not is_shared:
-            raise ValueError("User can only update their own annotations or annotations shared with them")
+        # Verify user is creator
+        if str(annotation.created_by) != user_id:
+            raise PermissionError("User can only update their own annotations")
 
         updates = {}
         if content is not None:
             updates["content"] = content
         if visibility is not None:
             updates["visibility"] = visibility
+        if updates:
+            updates["updated_at"] = datetime.utcnow().isoformat()
 
         if updates:
             await self.db.execute(
-                update(Annotation.__table__)
-                .where(Annotation.id == annotation_uuid)
-                .values(**updates)
+                update(Annotation).where(Annotation.id == annotation_uuid).values(**updates)
             )
             await self.db.commit()
 
@@ -268,14 +245,16 @@ class CollaborativeAnnotationService:
         result = await self.db.execute(
             select(Annotation).where(Annotation.id == annotation_uuid)
         )
+        updated = result.scalars().first()
+
         return {
-            "id": str(result["id"]),
-            "cell_dggid": result["cell_dggid"],
-            "dataset_id": result["dataset_id"],
-            "content": result["content"],
-            "type": result["annotation_type"],
-            "visibility": result["visibility"],
-            "updated_at": datetime.now().isoformat()
+            "id": str(updated.id),
+            "cell_dggid": updated.cell_dggid,
+            "dataset_id": str(updated.dataset_id),
+            "content": updated.content,
+            "type": updated.annotation_type,
+            "visibility": updated.visibility,
+            "updated_at": updated.updated_at
         }
 
     async def delete_annotation(
@@ -286,36 +265,35 @@ class CollaborativeAnnotationService:
         """
         Delete an annotation (only for creator).
         """
-        from app.models import Annotation
+        from app.models_annotations import Annotation, CellAnnotation, AnnotationShare
         import uuid
 
         try:
             annotation_uuid = uuid.UUID(annotation_id)
         except ValueError:
-            raise ValueError(f"Invalid annotation_id format")
+            raise ValueError("Invalid annotation_id format")
 
-        # Get annotation with sharing info
+        # Get annotation
         result = await self.db.execute(
-            select(Annotation, Annotation.shared_with)
-            .where(Annotation.id == annotation_uuid)
+            select(Annotation).where(Annotation.id == annotation_uuid)
         )
-        annotation = result.first()
+        annotation = result.scalars().first()
         if not annotation:
             raise ValueError(f"Annotation not found: {annotation_id}")
 
         # Verify ownership
-        is_owner = annotation.created_by == user_id
-        is_shared = user_id in (annotation.shared_with or [])
-
-        if not is_owner:
-            raise ValueError("User can only delete their own annotations")
+        if str(annotation.created_by) != user_id:
+            raise PermissionError("User can only delete their own annotations")
 
         # Delete shares first
-        if annotation.shared_with:
-            await self.db.execute(
-                delete(Annotation.__table__)
-                .where(Annotation.annotation_id.in_(annotation.shared_with))
-            )
+        await self.db.execute(
+            delete(AnnotationShare).where(AnnotationShare.annotation_id == annotation_uuid)
+        )
+
+        # Delete cell annotations
+        await self.db.execute(
+            delete(CellAnnotation).where(CellAnnotation.annotation_id == annotation_uuid)
+        )
 
         # Delete annotation
         await self.db.execute(
@@ -335,40 +313,36 @@ class CollaborativeAnnotationService:
         """
         Full-text search across annotation content.
         """
-        from app.models import Annotation
+        from app.models_annotations import Annotation
         import uuid
 
         try:
             dataset_uuid = uuid.UUID(dataset_id)
         except ValueError:
-            raise ValueError(f"Invalid dataset_id format")
+            raise ValueError("Invalid dataset_id format")
 
-        # Build search query
+        # Build search query - use ilike for simple text search
         stmt = select(Annotation).where(
             Annotation.dataset_id == dataset_uuid,
             Annotation.content.ilike(f"%{query}%")
         )
 
-        if bbox and len(bbox) == 4:
-            # BBox filter would require DGGAL to filter by cell location
-            # For now, return all and let frontend filter
-            pass
-
         stmt = stmt.order_by(Annotation.created_at.desc()).limit(limit)
 
         result = await self.db.execute(stmt)
+        rows = result.scalars().all()
 
         annotations = []
-        for row in result.mappings():
+        for row in rows:
             annotations.append({
-                "id": str(row["id"]),
-                "cell_dggid": row["cell_dggid"],
-                "dataset_id": row["dataset_id"],
-                "content": row["content"],
-                "type": row["annotation_type"],
-                "visibility": row["visibility"],
-                "created_by": str(row["created_by"]) if row["created_by"] else None,
-                "created_at": row["created_at"].isoformat() if row["created_at"] else None
+                "id": str(row.id),
+                "cell_dggid": row.cell_dggid,
+                "dataset_id": str(row.dataset_id),
+                "content": row.content,
+                "type": row.annotation_type,
+                "visibility": row.visibility,
+                "created_by": str(row.created_by) if row.created_by else None,
+                "created_at": row.created_at
             })
 
         return {
@@ -379,12 +353,6 @@ class CollaborativeAnnotationService:
         }
 
 
-# Singleton instance
-_annotation_service = None
-
 def get_annotation_service(db: AsyncSession) -> CollaborativeAnnotationService:
-    """Get or create singleton CollaborativeAnnotationService instance."""
-    global _annotation_service
-    if _annotation_service is None:
-        _annotation_service = CollaborativeAnnotationService(db)
-    return _annotation_service
+    """Create a CollaborativeAnnotationService instance for the given session."""
+    return CollaborativeAnnotationService(db)

@@ -11,8 +11,11 @@ from pydantic import BaseModel, Field
 from typing import List, Optional, Dict, Any
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.db import get_db
-from app.services.dggal_utils import get_dggal_service
+from app.dggal_utils import get_dggal_service
 from app.auth import get_optional_user
+from sqlalchemy import select
+from app.models import Dataset, CellObject
+import uuid
 import logging
 
 logger = logging.getLogger(__name__)
@@ -208,7 +211,7 @@ async def get_collection(
     # Get dataset
     stmt = select(Dataset).where(Dataset.id == ds_uuid)
     result = await db.execute(stmt)
-    ds = result.first()
+    ds = result.scalars().first()
 
     if not ds:
         raise HTTPException(status_code=404, detail=f"Collection not found: {collection_id}")
@@ -269,7 +272,7 @@ async def list_zones(
     # Get dataset
     stmt = select(Dataset).where(Dataset.id == ds_uuid)
     result = await db.execute(stmt)
-    ds = result.first()
+    ds = result.scalars().first()
 
     if not ds:
         raise HTTPException(status_code=404, detail=f"Collection not found: {collection_id}")
@@ -342,7 +345,7 @@ async def get_features(
     # Get dataset
     stmt = select(Dataset).where(Dataset.id == ds_uuid)
     result = await db.execute(stmt)
-    ds = result.first()
+    ds = result.scalars().first()
 
     if not ds:
         raise HTTPException(status_code=404, detail=f"Collection not found: {collection_id}")
@@ -446,7 +449,7 @@ async def get_zone_feature(
     # Get dataset
     stmt = select(Dataset).where(Dataset.id == ds_uuid)
     result = await db.execute(stmt)
-    ds = result.first()
+    ds = result.scalars().first()
 
     if not ds:
         raise HTTPException(status_code=404, detail=f"Collection not found: {collection_id}")
