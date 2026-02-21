@@ -114,7 +114,9 @@ async def list_cells(
     if key:
         stmt = stmt.where(CellObject.attr_key == key)
     if dggid_prefix:
-        stmt = stmt.where(CellObject.dggid.like(f"{dggid_prefix}%"))
+        # Escape SQL LIKE special characters to prevent pattern injection
+        escaped = dggid_prefix.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+        stmt = stmt.where(CellObject.dggid.like(f"{escaped}%"))
     if tid is not None:
         stmt = stmt.where(CellObject.tid == tid)
 

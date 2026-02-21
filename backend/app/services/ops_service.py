@@ -179,87 +179,90 @@ class OpsService:
         if dataset_b:
             parents.append(str(dataset_b))
 
-        async with self.db.begin():
+        try:
+            new_dataset = Dataset(
+                id=new_id,
+                name=f"{op_name} Result",
+                description=desc,
+                dggs_name=ds_a.dggs_name,
+                level=ds_a.level,
+                metadata_={"source": "spatial_op", "type": op_type, "parents": parents},
+                status="processing"
+            )
+            self.db.add(new_dataset)
+
+            # Insert result cells based on operation type
+            new_id_str = str(new_id)
+            dataset_a_str = str(dataset_a)
+            dataset_b_str = str(dataset_b) if dataset_b else None
+
+            if op_type == "intersection":
+                await self._execute_intersection(new_id_str, dataset_a_str, dataset_b_str)
+
+            elif op_type == "union":
+                await self._execute_union(new_id_str, dataset_a_str, dataset_b_str)
+
+            elif op_type == "difference":
+                await self._execute_difference(new_id_str, dataset_a_str, dataset_b_str)
+
+            elif op_type == "buffer":
+                iterations = max(1, min(limit or 1, 10))
+                await self._execute_buffer(new_id_str, dataset_a_str, iterations)
+
+            elif op_type == "aggregate":
+                agg_method = "avg"  # Default; can be overridden via metadata
+                await self._execute_aggregate(new_id_str, dataset_a_str, agg_method)
+
+            elif op_type == "symmetric_difference":
+                await self._execute_symmetric_difference(new_id_str, dataset_a_str, dataset_b_str)
+
+            elif op_type == "buffer_weighted":
+                iterations = max(1, min(limit or 3, 10))
+                await self._execute_buffer_weighted(new_id_str, dataset_a_str, iterations)
+
+            elif op_type == "contour":
+                await self._execute_contour(new_id_str, dataset_a_str, limit)
+
+            elif op_type == "idw_interpolation":
+                radius = max(1, min(limit or 3, 10))
+                await self._execute_idw_interpolation(new_id_str, dataset_a_str, radius)
+
+            elif op_type == "propagate":
+                iterations = max(1, min(limit or 5, 20))
+                if dataset_b_str:
+                    await self._execute_propagate_constrained(new_id_str, dataset_a_str, dataset_b_str, iterations)
+                else:
+                    await self._execute_buffer(new_id_str, dataset_a_str, iterations)
+
+            # Update status to active
+            await self.db.execute(
+                text("UPDATE datasets SET status = 'active' WHERE id = :id"),
+                {"id": new_id_str}
+            )
+
+            await self.db.commit()
+            logger.info(f"Completed spatial operation {op_type}, created dataset {new_id}")
+
+            return {
+                "status": "success",
+                "newDatasetId": new_id_str,
+                "operation": op_type,
+                "resultName": f"{op_name} Result"
+            }
+
+        except Exception as e:
+            await self.db.rollback()
+            logger.error(f"Spatial operation {op_type} failed: {e}")
+            # Clean up the orphaned dataset record
             try:
-                new_dataset = Dataset(
-                    id=new_id,
-                    name=f"{op_name} Result",
-                    description=desc,
-                    dggs_name=ds_a.dggs_name,
-                    level=ds_a.level,
-                    metadata_={"source": "spatial_op", "type": op_type, "parents": parents},
-                    status="processing"
-                )
-                self.db.add(new_dataset)
-
-                # Insert result cells based on operation type
-                if op_type == "intersection":
-                    await self._execute_intersection(new_id, dataset_a, dataset_b)
-
-                elif op_type == "union":
-                    await self._execute_union(new_id, dataset_a, dataset_b)
-
-                elif op_type == "difference":
-                    await self._execute_difference(new_id, dataset_a, dataset_b)
-
-                elif op_type == "buffer":
-                    iterations = max(1, min(limit or 1, 10))
-                    await self._execute_buffer(new_id, dataset_a, iterations)
-
-                elif op_type == "aggregate":
-                    agg_method = "avg"  # Default; can be overridden via metadata
-                    await self._execute_aggregate(new_id, dataset_a, agg_method)
-
-                elif op_type == "symmetric_difference":
-                    await self._execute_symmetric_difference(new_id, dataset_a, dataset_b)
-
-                elif op_type == "buffer_weighted":
-                    iterations = max(1, min(limit or 3, 10))
-                    await self._execute_buffer_weighted(new_id, dataset_a, iterations)
-
-                elif op_type == "contour":
-                    await self._execute_contour(new_id, dataset_a, limit)
-
-                elif op_type == "idw_interpolation":
-                    radius = max(1, min(limit or 3, 10))
-                    await self._execute_idw_interpolation(new_id, dataset_a, radius)
-
-                elif op_type == "propagate":
-                    iterations = max(1, min(limit or 5, 20))
-                    if dataset_b:
-                        await self._execute_propagate_constrained(new_id, dataset_a, dataset_b, iterations)
-                    else:
-                        await self._execute_buffer(new_id, dataset_a, iterations)
-
-                # Update status to active
                 await self.db.execute(
-                    text("UPDATE datasets SET status = 'active' WHERE id = :id"),
+                    text("DELETE FROM datasets WHERE id = :id"),
                     {"id": str(new_id)}
                 )
-
                 await self.db.commit()
-                logger.info(f"Completed spatial operation {op_type}, created dataset {new_id}")
-
-                return {
-                    "status": "success",
-                    "newDatasetId": str(new_id),
-                    "operation": op_type,
-                    "resultName": f"{op_name} Result"
-                }
-
-            except Exception as e:
-                await self.db.rollback()
-                logger.error(f"Spatial operation {op_type} failed: {e}")
-                # Clean up the orphaned dataset record
-                try:
-                    await self.db.execute(
-                        text("DELETE FROM datasets WHERE id = :id"),
-                        {"id": str(new_id)}
-                    )
-                    await self.db.commit()
-                except Exception:
-                    pass
-                raise ValueError(f"Spatial operation failed: {str(e)}")
+            except Exception:
+                pass
+            raise ValueError(f"Spatial operation failed: {str(e)}")
 
     async def _execute_intersection(self, new_id: str, dataset_a: str, dataset_b: str):
         """Geometric intersection: cells present in both A and B"""
