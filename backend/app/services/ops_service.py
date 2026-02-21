@@ -129,7 +129,11 @@ class OpsService:
         limit = min(max(limit or 1, 1), 50000)
 
         # Validate operation type
-        valid_ops = {"intersection", "union", "difference", "buffer", "aggregate", "propagate"}
+        valid_ops = {
+            "intersection", "union", "difference", "symmetric_difference",
+            "buffer", "buffer_weighted", "aggregate", "propagate",
+            "contour", "idw_interpolation"
+        }
         if op_type not in valid_ops:
             raise ValueError(f"Invalid operation type: {op_type}. Must be one of {valid_ops}")
 
@@ -152,12 +156,12 @@ class OpsService:
             raise ValueError("DGGS mismatch between datasets. Both datasets must use same DGGS.")
 
         # Verify topology table exists for operations that need it
-        topology_ops = {"buffer", "aggregate", "propagate"}
+        topology_ops = {"buffer", "buffer_weighted", "aggregate", "propagate", "contour", "idw_interpolation"}
         if op_type in topology_ops:
             topology_check = await self.db.execute(text(
                 "SELECT 1 FROM dgg_topology LIMIT 1"
             ))
-            if topology_check.scalar() == 0:
+            if topology_check.scalar() is None:
                 raise ValueError(
                     "Topology table is empty. Run topology population first: "
                     "python -m app.scripts.populate_topology"
@@ -203,7 +207,22 @@ class OpsService:
                     await self._execute_buffer(new_id, dataset_a, iterations)
 
                 elif op_type == "aggregate":
-                    await self._execute_aggregate(new_id, dataset_a)
+                    agg_method = "avg"  # Default; can be overridden via metadata
+                    await self._execute_aggregate(new_id, dataset_a, agg_method)
+
+                elif op_type == "symmetric_difference":
+                    await self._execute_symmetric_difference(new_id, dataset_a, dataset_b)
+
+                elif op_type == "buffer_weighted":
+                    iterations = max(1, min(limit or 3, 10))
+                    await self._execute_buffer_weighted(new_id, dataset_a, iterations)
+
+                elif op_type == "contour":
+                    await self._execute_contour(new_id, dataset_a, limit)
+
+                elif op_type == "idw_interpolation":
+                    radius = max(1, min(limit or 3, 10))
+                    await self._execute_idw_interpolation(new_id, dataset_a, radius)
 
                 elif op_type == "propagate":
                     iterations = max(1, min(limit or 5, 20))
@@ -282,7 +301,7 @@ class OpsService:
                     SELECT 1 FROM cell_objects a
                     WHERE a.dataset_id = :dataset_a
                     AND a.dggid = b.dggid
-                    AND COALESCE(a.tid, b.tid)
+                    AND a.tid = b.tid
                     AND a.attr_key = b.attr_key
                 )
             """), {"new_id": new_id, "dataset_a": dataset_a, "dataset_b": dataset_b})
@@ -315,18 +334,27 @@ class OpsService:
             FROM bfs b
         """), {"new_id": new_id, "dataset_a": dataset_a, "iterations": iterations})
 
-    async def _execute_aggregate(self, new_id: str, dataset_a: str):
-        """Aggregate: coarsen by moving to parent cells using topology table"""
-        await self.db.execute(text("""
+    async def _execute_aggregate(self, new_id: str, dataset_a: str, agg_method: str = "avg"):
+        """Aggregate: coarsen by moving to parent cells using topology table.
+        Supports: avg, sum, min, max, count, stddev."""
+        agg_sql_map = {
+            "avg": "AVG", "mean": "AVG", "sum": "SUM",
+            "min": "MIN", "max": "MAX", "count": "COUNT",
+            "stddev": "STDDEV"
+        }
+        agg_func = agg_sql_map.get(agg_method.lower(), "AVG")
+
+        await self.db.execute(text(f"""
             INSERT INTO cell_objects (dataset_id, dggid, tid, attr_key, value_num, value_text, value_json)
             SELECT CAST(:new_id AS UUID), t.parent_dggid, 0, 'aggregate',
-                   AVG(a.value_num), 'Aggregated', CAST(NULL AS JSONB)
+                   {agg_func}(a.value_num), 'Aggregated',
+                   jsonb_build_object('method', :agg_method, 'child_count', COUNT(*))
             FROM cell_objects a
             JOIN dgg_topology t ON a.dggid = t.dggid
             WHERE a.dataset_id = :dataset_a
             AND t.parent_dggid IS NOT NULL
             GROUP BY t.parent_dggid
-        """), {"new_id": new_id, "dataset_a": dataset_a})
+        """), {"new_id": new_id, "dataset_a": dataset_a, "agg_method": agg_method})
 
     async def _execute_propagate_constrained(self, new_id: str, dataset_a: str, dataset_b: str, iterations: int):
         """Constrained propagation (flood fill with mask)"""
@@ -344,4 +372,125 @@ class OpsService:
             SELECT DISTINCT CAST(:new_id AS UUID), s.dggid, 0, 'propagate',
                    CAST(NULL AS FLOAT), 'Spread', CAST(NULL AS JSONB)
             FROM spread s
-        """), {"new_id": new_id, "dataset_a": dataset_a, "dataset_b": dataset_b, "iterations": iterations}
+        """), {"new_id": new_id, "dataset_a": dataset_a, "dataset_b": dataset_b, "iterations": iterations})
+
+    async def _execute_symmetric_difference(self, new_id: str, dataset_a: str, dataset_b: str):
+        """Symmetric difference: cells in A XOR B (in one but not both)"""
+        await self.db.execute(text("""
+            INSERT INTO cell_objects (dataset_id, dggid, tid, attr_key, value_num, value_text, value_json)
+            SELECT :new_id, a.dggid, a.tid, a.attr_key, a.value_num, a.value_text, a.value_json
+            FROM cell_objects a
+            LEFT JOIN cell_objects b ON a.dggid = b.dggid AND a.tid = b.tid AND a.attr_key = b.attr_key
+                AND b.dataset_id = :dataset_b
+            WHERE a.dataset_id = :dataset_a AND b.dggid IS NULL
+            UNION ALL
+            SELECT :new_id, b.dggid, b.tid, b.attr_key, b.value_num, b.value_text, b.value_json
+            FROM cell_objects b
+            LEFT JOIN cell_objects a ON b.dggid = a.dggid AND b.tid = a.tid AND b.attr_key = a.attr_key
+                AND a.dataset_id = :dataset_a
+            WHERE b.dataset_id = :dataset_b AND a.dggid IS NULL
+            ON CONFLICT (dataset_id, dggid, tid, attr_key) DO NOTHING
+        """), {"new_id": new_id, "dataset_a": dataset_a, "dataset_b": dataset_b})
+
+    async def _execute_buffer_weighted(self, new_id: str, dataset_a: str, iterations: int):
+        """Distance-weighted buffer: expand by K-ring with distance decay.
+        Each cell gets a value_num = 1.0 / (depth + 1), creating a distance field."""
+        await self.db.execute(text("""
+            WITH RECURSIVE bfs AS (
+                SELECT DISTINCT dggid, 0 AS depth
+                FROM cell_objects WHERE dataset_id = :dataset_a
+                UNION
+                SELECT t.neighbor_dggid, bfs.depth + 1
+                FROM bfs
+                JOIN dgg_topology t ON bfs.dggid = t.dggid
+                WHERE bfs.depth < :iterations
+            ),
+            min_depth AS (
+                SELECT dggid, MIN(depth) AS depth FROM bfs GROUP BY dggid
+            )
+            INSERT INTO cell_objects (dataset_id, dggid, tid, attr_key, value_num, value_text, value_json)
+            SELECT DISTINCT CAST(:new_id AS UUID), md.dggid, 0, 'buffer_distance',
+                   1.0 / (md.depth + 1.0),
+                   CASE WHEN md.depth = 0 THEN 'Source' ELSE 'Buffer' END,
+                   jsonb_build_object('distance', md.depth)
+            FROM min_depth md
+            ON CONFLICT (dataset_id, dggid, tid, attr_key) DO UPDATE SET
+                value_num = EXCLUDED.value_num,
+                value_json = EXCLUDED.value_json
+        """), {"new_id": new_id, "dataset_a": dataset_a, "iterations": iterations})
+
+    async def _execute_contour(self, new_id: str, dataset_a: str, num_levels: int):
+        """Contour/isoline detection: find cells on boundaries where values cross thresholds.
+        Generates num_levels contour lines evenly spaced between min and max values."""
+        num_levels = max(2, min(num_levels, 50))
+        await self.db.execute(text("""
+            WITH value_range AS (
+                SELECT MIN(value_num) AS min_val, MAX(value_num) AS max_val
+                FROM cell_objects
+                WHERE dataset_id = :dataset_a AND value_num IS NOT NULL
+            ),
+            thresholds AS (
+                SELECT generate_series(1, :num_levels - 1) AS level_idx,
+                       min_val + (max_val - min_val) * generate_series(1, :num_levels - 1)::float / :num_levels AS threshold
+                FROM value_range
+            ),
+            contour_cells AS (
+                SELECT DISTINCT a.dggid, a.value_num, th.threshold, th.level_idx
+                FROM cell_objects a
+                JOIN dgg_topology t ON a.dggid = t.dggid
+                JOIN cell_objects b ON t.neighbor_dggid = b.dggid
+                    AND b.dataset_id = :dataset_a AND b.value_num IS NOT NULL
+                CROSS JOIN thresholds th
+                WHERE a.dataset_id = :dataset_a
+                    AND a.value_num IS NOT NULL
+                    AND a.value_num >= th.threshold
+                    AND b.value_num < th.threshold
+            )
+            INSERT INTO cell_objects (dataset_id, dggid, tid, attr_key, value_num, value_text, value_json)
+            SELECT CAST(:new_id AS UUID), cc.dggid, 0, 'contour',
+                   cc.threshold, 'Contour', jsonb_build_object('level', cc.level_idx, 'value', cc.value_num)
+            FROM contour_cells cc
+            ON CONFLICT (dataset_id, dggid, tid, attr_key) DO UPDATE SET
+                value_num = EXCLUDED.value_num,
+                value_json = EXCLUDED.value_json
+        """), {"new_id": new_id, "dataset_a": dataset_a, "num_levels": num_levels})
+
+    async def _execute_idw_interpolation(self, new_id: str, dataset_a: str, radius: int):
+        """Inverse Distance Weighting interpolation: fill empty neighbor cells
+        with weighted average of nearby measured values.
+        Weight = 1 / distance^2 where distance = K-ring hop count."""
+        await self.db.execute(text("""
+            WITH RECURSIVE measured AS (
+                SELECT DISTINCT dggid, value_num
+                FROM cell_objects
+                WHERE dataset_id = :dataset_a AND value_num IS NOT NULL
+            ),
+            kring AS (
+                SELECT m.dggid AS source, m.dggid AS target, 0 AS depth, m.value_num
+                FROM measured m
+                UNION
+                SELECT k.source, t.neighbor_dggid, k.depth + 1, k.value_num
+                FROM kring k
+                JOIN dgg_topology t ON k.target = t.dggid
+                WHERE k.depth < :radius
+            ),
+            unmeasured_neighbors AS (
+                SELECT k.target AS dggid,
+                       SUM(k.value_num / POWER(GREATEST(k.depth, 1), 2)) AS weighted_sum,
+                       SUM(1.0 / POWER(GREATEST(k.depth, 1), 2)) AS weight_total,
+                       COUNT(DISTINCT k.source) AS source_count
+                FROM kring k
+                WHERE k.depth > 0
+                    AND NOT EXISTS (SELECT 1 FROM measured m WHERE m.dggid = k.target)
+                GROUP BY k.target
+                HAVING COUNT(DISTINCT k.source) >= 2
+            )
+            INSERT INTO cell_objects (dataset_id, dggid, tid, attr_key, value_num, value_text, value_json)
+            SELECT CAST(:new_id AS UUID), u.dggid, 0, 'interpolated',
+                   u.weighted_sum / NULLIF(u.weight_total, 0),
+                   'IDW', jsonb_build_object('sources', u.source_count, 'method', 'idw')
+            FROM unmeasured_neighbors u
+            ON CONFLICT (dataset_id, dggid, tid, attr_key) DO UPDATE SET
+                value_num = EXCLUDED.value_num,
+                value_json = EXCLUDED.value_json
+        """), {"new_id": new_id, "dataset_a": dataset_a, "radius": radius})

@@ -266,23 +266,23 @@ class TemporalService:
         # Create result dataset
         result_id = uuid.uuid4()
 
-        # Build aggregation query
-        agg_funcs = {
-            "mean": func.avg,
-            "sum": func.sum,
-            "min": func.min,
-            "max": func.max,
-            "first": func.min,
-            "last": func.max
+        # Build aggregation query - SQL function names can't be parameterized,
+        # so we use a whitelist and string formatting
+        agg_sql_map = {
+            "mean": "AVG",
+            "sum": "SUM",
+            "min": "MIN",
+            "max": "MAX",
+            "first": "MIN",
+            "last": "MAX"
         }
 
-        agg_func = agg_funcs.get(agg_method, func.avg)
+        agg_sql_func = agg_sql_map.get(agg_method, "AVG")
 
-        # For numeric values
-        stmt_num = text("""
+        stmt_num = text(f"""
             INSERT INTO cell_objects (dataset_id, dggid, tid, attr_key, value_num, value_text, value_json)
             SELECT :result_id, dggid, :target_tid, attr_key,
-                   :agg_func(value_num), NULL, NULL
+                   {agg_sql_func}(value_num), NULL, NULL
             FROM cell_objects
             WHERE dataset_id = :source_id
                 AND tid = :source_tid

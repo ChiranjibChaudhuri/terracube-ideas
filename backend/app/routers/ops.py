@@ -24,7 +24,11 @@ class QueryRequest(BaseModel):
     limit: Optional[int] = 5000
 
 class SpatialRequest(BaseModel):
-    type: Literal["intersection", "zonal", "union", "difference", "buffer", "aggregate", "propagate"]
+    type: Literal[
+        "intersection", "zonal", "union", "difference", "symmetric_difference",
+        "buffer", "buffer_weighted", "aggregate", "propagate",
+        "contour", "idw_interpolation"
+    ]
     datasetAId: str
     datasetBId: Optional[str] = None
     keyA: str

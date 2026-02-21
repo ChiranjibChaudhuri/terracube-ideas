@@ -223,14 +223,25 @@ class ZonalStatsService:
             row = result.first()
             results["count"] = int(row[0]) if row and row[0] is not None else 0
 
-        # Mode (most frequent value)
+        # Mode (most frequent value - works for both text and numeric)
         if StatisticMethod.MODE in operations:
-            stmt = base_query.group_by(CellObject.value_text).order_by(
-                func.count().desc()
-            ).limit(1)
-            result = await self.db.execute(stmt)
+            mode_stmt = text("""
+                SELECT value_num, value_text, COUNT(*) as cnt
+                FROM cell_objects
+                WHERE dataset_id = :dataset_id
+                    AND attr_key = :variable
+                GROUP BY value_num, value_text
+                ORDER BY cnt DESC
+                LIMIT 1
+            """)
+            result = await self.db.execute(mode_stmt, {
+                "dataset_id": str(dataset_id), "variable": variable
+            })
             row = result.first()
-            results["mode"] = row[2] if row and len(row) > 2 else None  # value_text, count
+            if row:
+                results["mode"] = float(row[0]) if row[0] is not None else row[1]
+            else:
+                results["mode"] = None
 
         # Percentiles
         if StatisticMethod.PERCENTILE in operations:
@@ -327,35 +338,27 @@ class ZonalStatsService:
             "correlations": []
         }
 
-        # Build correlation queries for each pair
+        # Build correlation queries for each pair using PostgreSQL CORR()
         for i, var_a in enumerate(variables):
             for var_b in variables[i+1:]:
-                # Get cell-level data (joined on dggid)
                 stmt = text("""
-                    WITH joined AS (
-                        SELECT
-                            a.dggid,
-                            AVG(CASE WHEN a.attr_key = :var_a THEN a.value_num ELSE NULL END) AS val_a,
-                            AVG(CASE WHEN b.attr_key = :var_b THEN b.value_num ELSE NULL END) AS val_b
-                        FROM cell_objects a
-                        INNER JOIN cell_objects b ON a.dggid = b.dggid AND a.tid = b.tid
-                        WHERE a.dataset_id = :dataset_id
-                            AND a.attr_key IN :variables
-                            AND b.attr_key IN :variables
-                        )
                     SELECT
-                        COALESCE(AVG(val_a * val_b), 0) AS correlation,
+                        CORR(a.value_num, b.value_num) AS correlation,
                         COUNT(*) AS cell_count
-                    FROM joined
-                    GROUP BY a.dggid, b.dggid
-                    HAVING COUNT(*) > 1
+                    FROM cell_objects a
+                    INNER JOIN cell_objects b
+                        ON a.dggid = b.dggid AND a.tid = b.tid
+                        AND b.dataset_id = :dataset_id AND b.attr_key = :var_b
+                    WHERE a.dataset_id = :dataset_id
+                        AND a.attr_key = :var_a
+                        AND a.value_num IS NOT NULL
+                        AND b.value_num IS NOT NULL
                 """)
 
                 result = await self.db.execute(stmt, {
                     "dataset_id": dataset_id,
                     "var_a": var_a,
-                    "var_b": var_b,
-                    "variables": tuple(variables)
+                    "var_b": var_b
                 })
 
                 row = result.first()
@@ -373,89 +376,112 @@ class ZonalStatsService:
         dataset_id: str,
         variable: str,
         mask_dataset_id: Optional[str] = None,
-        radius: int = 3
-        method: Literal["getis_ord", "kernel"] = "getis_ord"
+        radius: int = 3,
+        method: str = "getis_ord"
     ) -> Dict[str, Any]:
         """
-        Compute spatial hotspots using Getis-Ord statistics.
+        Compute spatial hotspots using Getis-Ord Gi* statistic.
 
-        Identifies statistically significant clusters of high/low values.
+        For each cell, computes the Gi* z-score by comparing the local
+        neighborhood sum to the expected value under spatial randomness.
+
+        Gi* = (Σwij*xj - x̄*Σwij) / (S * sqrt((N*Σwij² - (Σwij)²) / (N-1)))
+
+        Args:
+            dataset_id: Dataset to analyze
+            variable: Attribute key for values
+            mask_dataset_id: Optional mask dataset
+            radius: K-ring radius for neighborhood (1-10)
+            method: Analysis method ("getis_ord")
+
+        Returns:
+            Hotspot results with z-scores per cell
         """
-        from sqlalchemy import func
-        from app.models import Dataset
         import uuid
 
-        # Get dataset info
-        ds = await self.db.get(select(Dataset).where(Dataset.id == uuid.UUID(dataset_id)))
-        if not ds:
-            raise ValueError(f"Dataset not found: {dataset_id}")
+        radius = max(1, min(radius, 10))
 
-        # Get neighbor count for radius (K-ring)
-        # This could use topology table, but for simplicity use a fixed count
-        # In hexagonal DGGS, K-ring has 6*K cells
-        k_ring_size = 6 * radius
-
-        # Gettis-Ord Gi* statistic
-        # Gi* = (sum - mean) / std_dev
+        # Getis-Ord Gi* using K-ring neighborhood from topology
+        # Uses recursive CTE to build K-ring, then computes Gi* z-score
         stmt = text("""
-            WITH cell_stats AS (
+            WITH global_stats AS (
                 SELECT
-                    c.dggid,
-                    AVG(c.value_num) AS mean_val,
-                    STDDEV(c.value_num) AS std_val,
-                    COUNT(*) AS neighborhood_count
+                    AVG(value_num) AS x_bar,
+                    STDDEV_POP(value_num) AS s,
+                    COUNT(*) AS n
+                FROM cell_objects
+                WHERE dataset_id = :dataset_id
+                    AND attr_key = :variable
+                    AND value_num IS NOT NULL
+            ),
+            kring AS (
+                -- Build K-ring neighborhood for each cell
+                SELECT DISTINCT c.dggid AS center, t.neighbor_dggid AS neighbor
                 FROM cell_objects c
+                JOIN dgg_topology t ON c.dggid = t.dggid
                 WHERE c.dataset_id = :dataset_id
                     AND c.attr_key = :variable
                     AND c.value_num IS NOT NULL
-                ),
-                neighbors AS (
-                    SELECT
-                        c.dggid,
-                        cs.mean_val,
-                        cs.std_val,
-                        cs.neighborhood_count,
-                        c.value_num,
-                        -- Calculate Getis-Ord Gi
-                        (COUNT(*) - 1) * (AVG(c.value_num) - c.value_num) AS g_star,
-                        (COUNT(*) - 1) * (AVG(c.value_num) - c.value_num) / NULLIF(STDDEV(c.value_num), 0) AS gi_stat
-                    FROM cell_objects c
-                    JOIN dgg_topology t ON c.dggid = t.neighbor_dggid
-                    INNER JOIN cell_stats cs ON c.dggid = cs.dggid
-                    WHERE c.dataset_id = :dataset_id
-                        AND t.level >= :base_level
-                        AND cs.neighborhood_count >= :neighborhood_count
-                )
+            ),
+            local_stats AS (
+                SELECT
+                    k.center AS dggid,
+                    SUM(nb.value_num) AS local_sum,
+                    COUNT(nb.value_num) AS wi_count
+                FROM kring k
+                JOIN cell_objects nb ON k.neighbor = nb.dggid
+                    AND nb.dataset_id = :dataset_id
+                    AND nb.attr_key = :variable
+                    AND nb.value_num IS NOT NULL
+                GROUP BY k.center
+            )
             SELECT
-                n.dggid,
-                n.value_num,
-                n.mean_val,
-                n.g_star,
-                n.gi_stat,
-                -- Average Gi* for neighborhood (excluding self)
-                AVG(n.gi_stat) OVER (PARTITION BY n.dggid) AS avg_gi
-            FROM neighbors n
-            ORDER BY n.g_star DESC  -- Higher G* = more significant hotspot
+                ls.dggid,
+                c.value_num,
+                ls.local_sum,
+                ls.wi_count,
+                gs.x_bar,
+                gs.s,
+                gs.n,
+                CASE WHEN gs.s > 0 AND gs.n > 1 THEN
+                    (ls.local_sum - gs.x_bar * ls.wi_count) /
+                    (gs.s * SQRT((gs.n * ls.wi_count - ls.wi_count * ls.wi_count) / NULLIF(gs.n - 1, 0)))
+                ELSE 0 END AS gi_z_score
+            FROM local_stats ls
+            JOIN cell_objects c ON ls.dggid = c.dggid
+                AND c.dataset_id = :dataset_id
+                AND c.attr_key = :variable
+            CROSS JOIN global_stats gs
+            ORDER BY gi_z_score DESC
+            LIMIT 5000
         """)
-
-        # Calculate base level from radius (coarser level = level - radius)
-        base_level = max(0, ds.level - radius)
 
         result = await self.db.execute(stmt, {
             "dataset_id": dataset_id,
-            "variable": variable,
-            "base_level": base_level,
-            "radius": radius,
-            "neighborhood_count": k_ring_size
+            "variable": variable
         })
 
         hotspots = []
-        for row in result.mappings():
+        for row in result:
+            z = float(row[7]) if row[7] is not None else 0.0
+            # Classify significance: |z| > 2.58 = 99%, > 1.96 = 95%, > 1.65 = 90%
+            if abs(z) >= 2.58:
+                significance = "p < 0.01"
+            elif abs(z) >= 1.96:
+                significance = "p < 0.05"
+            elif abs(z) >= 1.65:
+                significance = "p < 0.10"
+            else:
+                significance = "not significant"
+
             hotspots.append({
                 "dggid": row[0],
                 "value": float(row[1]) if row[1] is not None else None,
-                "g_star": float(row[3]) if row[3] is not None else None,
-                "gi_statistic": float(row[4]) if row[4] is not None else None
+                "local_sum": float(row[2]) if row[2] is not None else None,
+                "neighbor_count": int(row[3]) if row[3] is not None else 0,
+                "gi_z_score": z,
+                "type": "hotspot" if z > 0 else "coldspot",
+                "significance": significance
             })
 
         return {
@@ -463,6 +489,9 @@ class ZonalStatsService:
             "variable": variable,
             "method": method,
             "radius": radius,
+            "total_cells": len(hotspots),
+            "significant_hotspots": len([h for h in hotspots if "not" not in h["significance"] and h["type"] == "hotspot"]),
+            "significant_coldspots": len([h for h in hotspots if "not" not in h["significance"] and h["type"] == "coldspot"]),
             "hotspots": hotspots
         }
 
