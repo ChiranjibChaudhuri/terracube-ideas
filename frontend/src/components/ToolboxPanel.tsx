@@ -196,7 +196,7 @@ export const ToolboxPanel: React.FC = () => {
 
     return (
         <div className="toolbox-panel">
-            {status && <div className="toolbox-status" style={{ padding: '8px', background: '#f0f9ff', borderBottom: '1px solid #bae6fd', fontSize: '0.9em' }}>{status}</div>}
+            {status && <div className="toolbox-status">{status}</div>}
             {/* Tab Headers */}
             <div className="toolbox-tabs">
                 <button
@@ -275,14 +275,13 @@ export const ToolboxPanel: React.FC = () => {
                                 {/* Data Range Bounds */}
                                 <div className="toolbox-field">
                                     <label className="toolbox-label">Data Range (Min / Max)</label>
-                                    <div style={{ display: 'flex', gap: '8px' }}>
+                                    <div className="toolbox-range-row">
                                         <input
                                             type="number"
                                             className="toolbox-input"
                                             placeholder="Min"
                                             value={minValue}
                                             onChange={(e) => setMinValue(e.target.value)}
-                                            style={{ width: '50%' }}
                                         />
                                         <input
                                             type="number"
@@ -290,7 +289,6 @@ export const ToolboxPanel: React.FC = () => {
                                             placeholder="Max"
                                             value={maxValue}
                                             onChange={(e) => setMaxValue(e.target.value)}
-                                            style={{ width: '50%' }}
                                         />
                                     </div>
                                     <div className="toolbox-colorbar">

@@ -50,7 +50,7 @@ const LoginPage = () => {
         <p>{mode === 'login' ? 'Sign in to launch the DGGS workspace.' : 'Register to start exploring DGGS layers.'}</p>
 
         {redirectMessage && (
-          <div className="session-alert" style={{ background: 'rgba(59, 130, 246, 0.1)', borderColor: '#3b82f6', color: '#93c5fd' }}>
+          <div className="session-alert session-alert--info">
             {redirectMessage}
           </div>
         )}
@@ -105,7 +105,6 @@ const LoginPage = () => {
           className="button-secondary"
           type="button"
           onClick={() => { setMode(mode === 'login' ? 'register' : 'login'); setError(''); }}
-          style={{ marginTop: '0.75rem' }}
         >
           {mode === 'login' ? 'Need an account? Register' : 'Already have an account? Sign in'}
         </button>
