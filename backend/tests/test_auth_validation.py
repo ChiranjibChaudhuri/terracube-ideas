@@ -103,7 +103,7 @@ async def test_register_duplicate_email(async_client: AsyncClient):
 @pytest.mark.asyncio
 async def test_protected_endpoint_without_token(async_client: AsyncClient):
     """Test accessing protected endpoint without token returns 401."""
-    response = await async_client.get("/api/datasets")
+    response = await async_client.get("/api/auth/me")
 
     assert response.status_code == 401
 

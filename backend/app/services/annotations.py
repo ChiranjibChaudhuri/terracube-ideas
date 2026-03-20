@@ -1,11 +1,6 @@
-"""
-Collaborative Annotation Service for TerraCube IDEAS
+"""Collaborative annotation service."""
 
-Allows users to share notes and mark cells with shared/private/public visibility
-for collaborative GIS analysis.
-"""
-
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import List, Optional, Dict, Any
 from sqlalchemy import select, and_, or_, update, delete, func
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -66,6 +61,12 @@ class CollaborativeAnnotationService:
             dataset_uuid = uuid.UUID(dataset_id)
         except ValueError:
             raise ValueError("Invalid dataset_id format")
+        created_by_uuid = None
+        if created_by:
+            try:
+                created_by_uuid = uuid.UUID(created_by)
+            except ValueError:
+                raise ValueError("Invalid created_by format")
 
         # Validate visibility
         valid_visibilities = [
@@ -89,7 +90,7 @@ class CollaborativeAnnotationService:
 
         # Generate annotation ID
         annotation_id = uuid.uuid4()
-        now = datetime.utcnow().isoformat()
+        now = datetime.now(timezone.utc)
 
         # Create annotation record
         annotation = Annotation(
@@ -99,8 +100,9 @@ class CollaborativeAnnotationService:
             content=content,
             annotation_type=annotation_type,
             visibility=visibility,
-            created_by=created_by,
-            created_at=now
+            created_by=created_by_uuid,
+            created_at=now,
+            updated_at=now,
         )
         self.db.add(annotation)
 
@@ -114,9 +116,13 @@ class CollaborativeAnnotationService:
         # Handle sharing
         if visibility == AnnotationVisibility.SHARED and shared_with:
             for user_id in shared_with:
+                try:
+                    shared_with_uuid = uuid.UUID(user_id)
+                except ValueError:
+                    raise ValueError("Invalid shared_with user ID format")
                 share = AnnotationShare(
                     annotation_id=annotation_id,
-                    shared_with=user_id,
+                    shared_with=shared_with_uuid,
                     created_at=now
                 )
                 self.db.add(share)
@@ -132,7 +138,7 @@ class CollaborativeAnnotationService:
             "visibility": visibility,
             "shared_with": shared_with or [],
             "created_by": created_by,
-            "created_at": now
+            "created_at": now.isoformat()
         }
 
     async def list_annotations(
@@ -166,7 +172,11 @@ class CollaborativeAnnotationService:
             stmt = stmt.where(Annotation.annotation_type.in_(types))
 
         if created_by:
-            stmt = stmt.where(Annotation.created_by == created_by)
+            try:
+                created_by_uuid = uuid.UUID(created_by)
+            except ValueError:
+                raise ValueError("Invalid created_by format")
+            stmt = stmt.where(Annotation.created_by == created_by_uuid)
 
         stmt = stmt.order_by(Annotation.created_at.desc()).limit(limit)
 
@@ -183,7 +193,7 @@ class CollaborativeAnnotationService:
                 "type": row.annotation_type,
                 "visibility": row.visibility,
                 "created_by": str(row.created_by) if row.created_by else None,
-                "created_at": row.created_at
+                "created_at": row.created_at.isoformat() if row.created_at else None
             })
 
         return {
@@ -233,7 +243,7 @@ class CollaborativeAnnotationService:
         if visibility is not None:
             updates["visibility"] = visibility
         if updates:
-            updates["updated_at"] = datetime.utcnow().isoformat()
+            updates["updated_at"] = datetime.now(timezone.utc)
 
         if updates:
             await self.db.execute(
@@ -254,7 +264,7 @@ class CollaborativeAnnotationService:
             "content": updated.content,
             "type": updated.annotation_type,
             "visibility": updated.visibility,
-            "updated_at": updated.updated_at
+            "updated_at": updated.updated_at.isoformat() if updated.updated_at else None
         }
 
     async def delete_annotation(
@@ -342,7 +352,7 @@ class CollaborativeAnnotationService:
                 "type": row.annotation_type,
                 "visibility": row.visibility,
                 "created_by": str(row.created_by) if row.created_by else None,
-                "created_at": row.created_at
+                "created_at": row.created_at.isoformat() if row.created_at else None
             })
 
         return {

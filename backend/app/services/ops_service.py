@@ -117,14 +117,21 @@ class OpsService:
 
         raise ValueError("Unsupported query type.")
 
-    async def execute_spatial_op(self, op_type: str, dataset_a_id: str, dataset_b_id: Optional[str],
-                               limit: int = 1000) -> Dict[str, Any]:
+    async def execute_spatial_op(
+        self,
+        op_type: str,
+        dataset_a_id: str,
+        dataset_b_id: Optional[str],
+        limit: int = 1000,
+        user_id: Optional[str] = None,
+    ) -> Dict[str, Any]:
         """
         Execute a spatial operation between datasets and store result as new dataset.
         All operations are performed in a transaction for atomicity.
         """
         dataset_a = self._parse_uuid(dataset_a_id, "datasetAId")
         dataset_b = self._parse_uuid(dataset_b_id, "datasetBId") if dataset_b_id else None
+        owner_id = self._parse_uuid(user_id, "userId") if user_id else None
 
         limit = min(max(limit or 1, 1), 50000)
 
@@ -186,6 +193,7 @@ class OpsService:
                 description=desc,
                 dggs_name=ds_a.dggs_name,
                 level=ds_a.level,
+                created_by=owner_id,
                 metadata_={"source": "spatial_op", "type": op_type, "parents": parents},
                 status="processing"
             )

@@ -3,6 +3,7 @@ import json
 import time
 import unittest
 import os
+from app.config import settings
 
 BASE_URL = "http://localhost:4000/api"
 
@@ -15,8 +16,8 @@ class TestSpatialToolbox(unittest.TestCase):
         print("\nLogging in...")
         url = f"{BASE_URL}/auth/login"
         payload = {
-            "email": "admin@terracube.xyz",
-            "password": "ChangeThisSecurePassword123!"
+            "email": settings.ADMIN_EMAIL,
+            "password": settings.ADMIN_PASSWORD
         }
         
         req = urllib.request.Request(

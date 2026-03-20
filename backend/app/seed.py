@@ -22,13 +22,29 @@ async def seed_admin():
         async with pool.acquire() as conn:
             existing = await conn.fetchval("SELECT id FROM users WHERE email = $1", email)
             if existing:
-                logger.info("Admin account already exists.")
+                await conn.execute(
+                    """
+                    UPDATE users
+                    SET role = 'admin',
+                        is_active = TRUE,
+                        name = COALESCE(name, $2)
+                    WHERE email = $1
+                    """,
+                    email,
+                    name,
+                )
+                logger.info("Admin account already exists. Ensured admin role is applied.")
                 return
 
             password_hash = get_password_hash(password)
             await conn.execute(
-                "INSERT INTO users (email, password_hash, name) VALUES ($1, $2, $3)",
-                email, password_hash, name
+                """
+                INSERT INTO users (email, password_hash, name, role, is_active)
+                VALUES ($1, $2, $3, 'admin', TRUE)
+                """,
+                email,
+                password_hash,
+                name,
             )
             logger.info(f"Admin account created: {email}")
     except Exception as e:

@@ -2,13 +2,14 @@ import pytest
 import uuid
 import json
 from httpx import AsyncClient
+from app.config import settings
 # from app.main import app # Don't import app to avoid global state issues
 
 # Helper to get auth token
 async def get_auth_headers(ac: AsyncClient):
     login_res = await ac.post("/api/auth/login", json={
-        "email": "admin@terracube.xyz",
-        "password": "ChangeThisSecurePassword123!"
+        "email": settings.ADMIN_EMAIL,
+        "password": settings.ADMIN_PASSWORD
     })
     assert login_res.status_code == 200, f"Login failed: {login_res.text}"
     token = login_res.json()["token"]

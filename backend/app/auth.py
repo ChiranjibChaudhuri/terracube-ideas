@@ -87,6 +87,7 @@ async def get_current_user(
     # Extract user info from token payload
     user_id = payload.get("sub")
     email = payload.get("email")
+    role = payload.get("role")
 
     if not user_id:
         raise HTTPException(
@@ -95,7 +96,7 @@ async def get_current_user(
             headers={"WWW-Authenticate": "Bearer"},
         )
 
-    return {"id": user_id, "email": email}
+    return {"id": user_id, "email": email, "role": role}
 
 
 async def get_optional_user(
@@ -116,8 +117,9 @@ async def get_optional_user(
 
     user_id = payload.get("sub")
     email = payload.get("email")
+    role = payload.get("role")
 
     if not user_id:
         return None
 
-    return {"id": user_id, "email": email}
+    return {"id": user_id, "email": email, "role": role}

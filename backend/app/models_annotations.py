@@ -1,31 +1,27 @@
-"""
-Annotations and related models for TerraCube IDEAS
-"""
+"""Annotation models for collaborative DGGS notes."""
 
-from sqlalchemy import Column, String, Text, ForeignKey, Index, UniqueConstraint, Integer, CheckConstraint, Boolean
-from sqlalchemy.dialects.postgresql import UUID
-from sqlalchemy.orm import relationship
-from app.models import Base
 import uuid
+
+from sqlalchemy import Column, DateTime, ForeignKey, Index, Integer, String, Text, UniqueConstraint
+from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.sql import func
+
+from app.models import Base
 
 
 class Annotation(Base):
-    """
-    Core annotation record for collaborative notes on DGGS cells.
-
-    Stores the annotation content and metadata separate from cell relationships.
-    """
+    """Primary annotation record."""
     __tablename__ = "annotations"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     cell_dggid = Column(String(50), nullable=False, index=True)
-    dataset_id = Column(UUID(as_uuid=True), nullable=False, index=True)
+    dataset_id = Column(UUID(as_uuid=True), ForeignKey("datasets.id", ondelete="CASCADE"), nullable=False, index=True)
     content = Column(Text, nullable=False)
-    annotation_type = Column(String(50), nullable=False, default="note")  # note, warning, question, correction, observation
-    visibility = Column(String(20), nullable=False, default="private")  # private, shared, public
-    created_by = Column(UUID(as_uuid=True), nullable=False)
-    created_at = Column(String(50), nullable=False)
-    updated_at = Column(String(50), nullable=True)
+    annotation_type = Column(String(50), nullable=False, default="note")
+    visibility = Column(String(20), nullable=False, default="private")
+    created_by = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
     __table_args__ = (
         Index("idx_annotations_cell", "cell_dggid"),
@@ -37,15 +33,11 @@ class Annotation(Base):
 
 
 class CellAnnotation(Base):
-    """
-    Cell lookup table for annotations.
-
-    Enables fast cell-based queries for annotation display on map.
-    """
+    """Lookup table for cell-to-annotation joins."""
     __tablename__ = "cell_annotations"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    annotation_id = Column(UUID(as_uuid=True), nullable=False)
+    annotation_id = Column(UUID(as_uuid=True), ForeignKey("annotations.id", ondelete="CASCADE"), nullable=False)
     cell_dggid = Column(String(50), nullable=False)
 
     __table_args__ = (
@@ -56,17 +48,13 @@ class CellAnnotation(Base):
 
 
 class AnnotationShare(Base):
-    """
-    Share records for 'shared' visibility annotations.
-
-    Tracks which users can access a specific annotation.
-    """
+    """Share records for annotations with shared visibility."""
     __tablename__ = "annotation_shares"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    annotation_id = Column(UUID(as_uuid=True), nullable=False, index=True)
-    shared_with = Column(UUID(as_uuid=True), nullable=False)
-    created_at = Column(String(50), nullable=False)
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    annotation_id = Column(UUID(as_uuid=True), ForeignKey("annotations.id", ondelete="CASCADE"), nullable=False, index=True)
+    shared_with = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
     __table_args__ = (
         Index("idx_annotation_shares_annotation", "annotation_id"),

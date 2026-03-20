@@ -34,6 +34,8 @@ def serialize_dataset(dataset: Dataset):
         "level": dataset.level,
         "status": dataset.status,
         "metadata": dataset.metadata_ or {},
+        "visibility": dataset.visibility,
+        "created_by": str(dataset.created_by) if dataset.created_by else None,
         "created_at": dataset.created_at.isoformat() if dataset.created_at else None,
     }
 
@@ -81,7 +83,13 @@ async def create_dataset(
     Create a new empty dataset.
     """
     repo = DatasetRepository(db)
-    new_dataset = await repo.create(name=name, description=description, level=level, dggs_name=dggs_name)
+    new_dataset = await repo.create(
+        name=name,
+        description=description,
+        level=level,
+        dggs_name=dggs_name,
+        created_by=uuid.UUID(user["id"]),
+    )
     return {"dataset": serialize_dataset(new_dataset)}
 
 @router.get("/{dataset_id}/cells")

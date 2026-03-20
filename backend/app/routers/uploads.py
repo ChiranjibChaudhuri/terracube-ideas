@@ -57,6 +57,7 @@ async def upload_file(
         
     dataset_repo = DatasetRepository(db)
     ds_uuid = None
+    creator_uuid = uuid.UUID(user["id"])
     
     # Vector Import detected by extension
     is_vector = ext in [".geojson", ".shp", ".kml", ".gpkg"]
@@ -78,7 +79,8 @@ async def upload_file(
             name=dataset_name.strip() or os.path.splitext(filename)[0],
             description=dataset_description.strip() or f"Vector import from {filename}",
             dggs_name=dggs_name,
-            metadata_={"source_type": "vector_file", "source_file": filename}
+            metadata_={"source_type": "vector_file", "source_file": filename},
+            created_by=creator_uuid,
         )
         ds_uuid = created.id
         await db.commit()
@@ -102,6 +104,7 @@ async def upload_file(
             dggs_name=dggs_name,
             level=min_level if min_level is not None and min_level == max_level else None,
             metadata_=metadata or {},
+            created_by=creator_uuid,
         )
         ds_uuid = created.id
 

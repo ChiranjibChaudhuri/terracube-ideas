@@ -84,6 +84,7 @@ type MapViewProps = {
   onStats?: (stats: MapStats) => void;
   onCoordinatesChange?: (coords: { lat: number; lng: number } | null) => void;
   onZoomChange?: (zoom: number) => void;
+  onViewportChange?: (bbox: [number, number, number, number]) => void;
 };
 
 const getInterpolator = (rampName?: string) => {
@@ -156,6 +157,7 @@ const MapView = ({
   onStats,
   onCoordinatesChange,
   onZoomChange,
+  onViewportChange,
 }: MapViewProps) => {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const [size, setSize] = useState({ width: 800, height: 600 });
@@ -201,6 +203,15 @@ const MapView = ({
   useEffect(() => {
     onZoomChange?.(viewState.zoom ?? 1);
   }, [viewState.zoom, onZoomChange]);
+
+  useEffect(() => {
+    if (size.width <= 0 || size.height <= 0) {
+      return;
+    }
+
+    const extent = buildExtent(viewState, size.width, size.height, useGlobe);
+    onViewportChange?.([extent.ll.lon, extent.ll.lat, extent.ur.lon, extent.ur.lat]);
+  }, [onViewportChange, size.height, size.width, useGlobe, viewState]);
 
   useEffect(() => {
     if (mode === 'viewport' && (!datasetId || !attributeKey)) {

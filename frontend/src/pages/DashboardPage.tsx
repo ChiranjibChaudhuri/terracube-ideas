@@ -3,6 +3,7 @@ import MapView from '../components/MapView';
 import { DatasetSearch } from '../components/DatasetSearch';
 import { LayerList } from '../components/LayerList';
 import { ToolboxPanel } from '../components/ToolboxPanel';
+import { StacBrowser } from '../components/StacBrowser';
 import { MapInfoBar } from '../components/MapInfoBar';
 import { ToastContainer } from '../components/Toast';
 import { useToast } from '../components/Toast';
@@ -62,11 +63,13 @@ const DashboardPage = () => {
   const [zoom, setZoom] = useState(1.5);
   const [useGlobe, setUseGlobe] = useState(false);
   const [basemapId, setBasemapId] = useState(DEFAULT_BASEMAP_ID);
+  const [stacViewportBbox, setStacViewportBbox] = useState<[number, number, number, number] | null>(null);
 
   // Collapsible sections state
   const [sectionsOpen, setSectionsOpen] = useState({
     layers: true,
     toolbox: true,
+    stac: false,
     team: false,
     billing: false,
     settings: false
@@ -180,6 +183,24 @@ const DashboardPage = () => {
             )}
           </div>
 
+          {/* STAC Data Browser */}
+          <div className="section">
+            <div className="section-header" onClick={() => toggleSection('stac')}>
+              <span className="section-title">Satellite Data (STAC)</span>
+              <span className="section-toggle">{sectionsOpen.stac ? '−' : '+'}</span>
+            </div>
+            {sectionsOpen.stac && (
+              <div className="section-content">
+                <StacBrowser
+                  currentViewportBbox={stacViewportBbox}
+                  onIngestComplete={(datasetId) => {
+                    setStatus(`STAC ingestion started for dataset ${datasetId}. Cells will appear when processing completes.`);
+                  }}
+                />
+              </div>
+            )}
+          </div>
+
           {/* Team (collapsed by default) */}
           <div className="section">
             <div className="section-header" onClick={() => toggleSection('team')}>
@@ -191,14 +212,14 @@ const DashboardPage = () => {
                 <div className="toolbox">
                   <div className="toolbox-field">
                     <label className="toolbox-label">Invite Teammate</label>
-                    <div style={{ display: 'flex', gap: '0.5rem' }}>
+                    <div className="sidebar-invite-row">
                       <input type="email" className="toolbox-input" placeholder="email@example.com" />
-                      <button className="button-primary" style={{ padding: '0.5rem 1rem' }} onClick={() => setStatus('Invite sent to teammate!')}>Send</button>
+                      <button className="button-primary sidebar-invite-btn" onClick={() => setStatus('Invite sent to teammate!')}>Send</button>
                     </div>
                   </div>
                   <div className="toolbox-field">
                     <label className="toolbox-label">Active Members</label>
-                    <div className="badge" style={{ marginBottom: '0.5rem' }}>Demo User (Admin)</div>
+                    <div className="badge">Demo User (Admin)</div>
                   </div>
                 </div>
               </div>
@@ -216,9 +237,9 @@ const DashboardPage = () => {
                 <div className="toolbox">
                   <div className="toolbox-field">
                     <label className="toolbox-label">Current Plan: Professional</label>
-                    <p style={{ fontSize: '0.8rem', opacity: 0.8 }}>Next billing date: Feb 28, 2026</p>
+                    <p className="sidebar-plan-text">Next billing date: Feb 28, 2026</p>
                   </div>
-                  <button className="button-secondary" style={{ width: '100%' }} onClick={() => setStatus('Redirecting to stripe (Mock)...')}>Manage Subscription</button>
+                  <button className="button-secondary sidebar-manage-btn" onClick={() => setStatus('Redirecting to stripe (Mock)...')}>Manage Subscription</button>
                 </div>
               </div>
             )}
@@ -345,6 +366,7 @@ const DashboardPage = () => {
               useGlobe={useGlobe}
               onCoordinatesChange={setCoordinates}
               onZoomChange={setZoom}
+              onViewportChange={setStacViewportBbox}
             />
 
             {/* Scale Bar */}

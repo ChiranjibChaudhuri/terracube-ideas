@@ -44,9 +44,11 @@ async def login(data: LoginRequest, db: AsyncSession = Depends(get_db)):
         
         if not user or not verify_password(data.password, user.password_hash):
             raise HTTPException(status_code=401, detail="Invalid credentials")
+        if not user.is_active:
+            raise HTTPException(status_code=403, detail="User account is disabled")
         
-        token = create_access_token({"sub": str(user.id), "email": user.email})
-        refresh = create_refresh_token({"sub": str(user.id), "email": user.email})
+        token = create_access_token({"sub": str(user.id), "email": user.email, "role": user.role})
+        refresh = create_refresh_token({"sub": str(user.id), "email": user.email, "role": user.role})
 
         return {
             "token": token,
@@ -88,8 +90,8 @@ async def register(data: RegisterRequest, db: AsyncSession = Depends(get_db)):
         await db.commit()
         await db.refresh(new_user)  # Ensure user data is loaded after commit
 
-        token = create_access_token({"sub": str(new_user.id), "email": new_user.email})
-        refresh = create_refresh_token({"sub": str(new_user.id), "email": new_user.email})
+        token = create_access_token({"sub": str(new_user.id), "email": new_user.email, "role": new_user.role})
+        refresh = create_refresh_token({"sub": str(new_user.id), "email": new_user.email, "role": new_user.role})
 
         return {
             "token": token,
@@ -251,7 +253,7 @@ async def refresh_token(
         raise HTTPException(status_code=401, detail="User account is disabled")
 
     # Generate new access token
-    access_token = create_access_token({"sub": str(user.id), "email": user.email})
+    access_token = create_access_token({"sub": str(user.id), "email": user.email, "role": user.role})
 
     return {
         "token": access_token,

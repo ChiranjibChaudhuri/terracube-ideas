@@ -120,7 +120,8 @@ from app.routers import (
     prediction,        # ML predictions and fire spread
     temporal,          # Temporal operations and CA
     ogc,               # OGC API Features
-    spatial_analysis   # Advanced spatial analysis algorithms
+    spatial_analysis,  # Advanced spatial analysis algorithms
+    stac,              # STAC-DGGS integration
 )
 
 # Register API routes
@@ -140,6 +141,7 @@ app.include_router(prediction.router)
 app.include_router(temporal.router)
 app.include_router(ogc.router)
 app.include_router(spatial_analysis.router)
+app.include_router(stac.router)
 
 from prometheus_fastapi_instrumentator import Instrumentator
 Instrumentator().instrument(app).expose(app)

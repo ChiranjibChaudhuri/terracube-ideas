@@ -10,10 +10,24 @@ export interface UploadStatus {
     created_at: string;
 }
 
+type DatasetListPayload<T = Record<string, unknown>> =
+    | T[]
+    | { datasets?: T[] };
+
+const normalizeDatasets = <T,>(payload: DatasetListPayload<T>): T[] => {
+    if (Array.isArray(payload)) {
+        return payload;
+    }
+    return payload.datasets ?? [];
+};
+
 export const useDatasets = (search?: string) => {
     return useQuery({
         queryKey: ['datasets', search],
-        queryFn: () => fetchDatasets(search),
+        queryFn: async () => {
+            const result = await fetchDatasets(search);
+            return normalizeDatasets(result as DatasetListPayload);
+        },
     });
 };
 

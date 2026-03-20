@@ -85,11 +85,11 @@ async def run_spatial(request: SpatialRequest = Body(...), db: AsyncSession = De
             op_type=request.type,
             dataset_a_id=request.datasetAId,
             dataset_b_id=request.datasetBId,
-            limit=request.limit or 1000
+            limit=request.limit or 1000,
+            user_id=user["id"],
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
          logger.error(f"Spatial Op error: {e}")
          raise HTTPException(status_code=500, detail=str(e))
-

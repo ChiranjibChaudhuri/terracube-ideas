@@ -24,7 +24,10 @@ dependencies = [
     "shapely>=2.0.0",
     "requests>=2.31.0",
     "fiona>=1.9.0",
-    "slowapi>=0.1.9"
+    "slowapi>=0.1.9",
+    "pystac-client>=0.8.0",
+    "planetary-computer>=1.0.0",
+    "pyarrow>=14.0.0"
 ]
 
 [tool.setuptools]

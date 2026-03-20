@@ -9,6 +9,8 @@ Base = declarative_base()
 
 # Import annotation models so they register with Base
 import app.models_annotations  # noqa: F401
+# Import STAC models so they register with Base
+import app.models_stac  # noqa: F401
 
 
 class UserRole(str, Enum):

@@ -5,7 +5,7 @@ from app.config import settings
 # "redis://redis:6379/0"
 redis_url = f"redis://{settings.REDIS_HOST}:{settings.REDIS_PORT}/0"
 
-celery_app = Celery("terracube", broker=redis_url, backend=redis_url, include=["app.services.ingest"])
+celery_app = Celery("terracube", broker=redis_url, backend=redis_url, include=["app.services.ingest", "app.services.stac_ingest"])
 
 celery_app.conf.update(
     task_serializer="json",
