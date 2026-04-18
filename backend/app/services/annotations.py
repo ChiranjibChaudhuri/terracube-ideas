@@ -141,6 +141,114 @@ class CollaborativeAnnotationService:
             "created_at": now.isoformat()
         }
 
+    async def get_annotation(self, annotation_id: str, user_id: Optional[str] = None) -> Dict[str, Any]:
+        """
+        Get details of a specific annotation with visibility checks.
+        """
+        from app.models_annotations import Annotation, AnnotationShare
+        import uuid
+
+        try:
+            annotation_uuid = uuid.UUID(annotation_id)
+        except ValueError:
+            raise ValueError("Invalid annotation_id format")
+
+        # Build query
+        stmt = select(Annotation).where(Annotation.id == annotation_uuid)
+        result = await self.db.execute(stmt)
+        annotation = result.scalars().first()
+
+        if not annotation:
+            return None
+
+        # Visibility checks
+        if annotation.visibility == AnnotationVisibility.PRIVATE:
+            if str(annotation.created_by) != user_id:
+                return None
+        elif annotation.visibility == AnnotationVisibility.SHARED:
+            # Check if user is creator
+            if str(annotation.created_by) != user_id:
+                if not user_id:
+                    return None
+                
+                # Check shares
+                share_stmt = select(AnnotationShare).where(
+                    and_(
+                        AnnotationShare.annotation_id == annotation_uuid,
+                        AnnotationShare.shared_with == uuid.UUID(user_id)
+                    )
+                )
+                share_result = await self.db.execute(share_stmt)
+                if not share_result.scalars().first():
+                    return None
+        
+        # Public is visible to everyone
+
+        return {
+            "id": str(annotation.id),
+            "cell_dggid": annotation.cell_dggid,
+            "dataset_id": str(annotation.dataset_id),
+            "content": annotation.content,
+            "type": annotation.annotation_type,
+            "visibility": annotation.visibility,
+            "created_by": str(annotation.created_by) if annotation.created_by else None,
+            "created_at": annotation.created_at.isoformat() if annotation.created_at else None
+        }
+
+    async def get_annotation(self, annotation_id: str, user_id: Optional[str] = None) -> Dict[str, Any]:
+        """
+        Get details of a specific annotation with visibility checks.
+        """
+        from app.models_annotations import Annotation, AnnotationShare
+        import uuid
+
+        try:
+            annotation_uuid = uuid.UUID(annotation_id)
+        except ValueError:
+            raise ValueError("Invalid annotation_id format")
+
+        # Build query
+        stmt = select(Annotation).where(Annotation.id == annotation_uuid)
+        result = await self.db.execute(stmt)
+        annotation = result.scalars().first()
+
+        if not annotation:
+            return None
+
+        # Visibility checks
+        if annotation.visibility == AnnotationVisibility.PRIVATE:
+            if str(annotation.created_by) != user_id:
+                return None
+        elif annotation.visibility == AnnotationVisibility.SHARED:
+            # Check if user is creator
+            if str(annotation.created_by) != user_id:
+                if not user_id:
+                    return None
+                
+                # Check shares
+                share_stmt = select(AnnotationShare).where(
+                    and_(
+                        AnnotationShare.annotation_id == annotation_uuid,
+                        AnnotationShare.shared_with == uuid.UUID(user_id)
+                    )
+                )
+                share_result = await self.db.execute(share_stmt)
+                if not share_result.scalars().first():
+                    return None
+        
+        # Public is visible to everyone
+
+        return {
+            "id": str(annotation.id),
+            "cell_dggid": annotation.cell_dggid,
+            "dataset_id": str(annotation.dataset_id),
+            "content": annotation.content,
+            "type": annotation.annotation_type,
+            "visibility": annotation.visibility,
+            "created_by": str(annotation.created_by) if annotation.created_by else None,
+            "created_at": annotation.created_at.isoformat() if annotation.created_at else None
+        }
+
     async def list_annotations(
         self,
         dataset_id: str,

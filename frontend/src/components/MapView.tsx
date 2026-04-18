@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import DeckGL from '@deck.gl/react';
-import { PolygonLayer, GeoJsonLayer, SolidPolygonLayer, BitmapLayer } from '@deck.gl/layers';
+import { ScatterplotLayer, PolygonLayer, GeoJsonLayer, SolidPolygonLayer, BitmapLayer } from '@deck.gl/layers';
 import { _GlobeView as GlobeView, WebMercatorViewport, COORDINATE_SYSTEM, type Layer, type MapViewState, type Color } from '@deck.gl/core';
 import Map from 'react-map-gl/maplibre';
 import 'maplibre-gl/dist/maplibre-gl.css';
@@ -17,8 +17,9 @@ import {
   interpolateSpectral
 } from 'd3-scale-chromatic';
 import { rgb } from 'd3-color';
-import { fetchCellsByDggids, getChildren, getNeighbors, getParent, listZonesFromBackend } from '../lib/api';
+import { fetchCellsByDggids, getChildren, getNeighbors, getParent, listZonesFromBackend, createAnnotation, fetchAnnotations } from '../lib/api';
 import { getZoneLevel, resolveZonePolygons, type GeoExtent } from '../lib/dggal';
+import { useAppStore } from '../lib/store';
 
 // Default basemap style - no API key required
 const BASEMAP_STYLE = 'https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json';
@@ -160,6 +161,7 @@ const MapView = ({
   onViewportChange,
 }: MapViewProps) => {
   const containerRef = useRef<HTMLDivElement | null>(null);
+  const { annotations, addAnnotation, setAnnotations } = useAppStore();
   const [size, setSize] = useState({ width: 800, height: 600 });
   const [viewState, setViewState] = useState<MapViewState>({
     longitude: 0,
@@ -188,6 +190,8 @@ const MapView = ({
   const [selectionPolygons, setSelectionPolygons] = useState<SelectionPolygon[]>([]);
 
   const [loadingNewLevel, setLoadingNewLevel] = useState(false);
+  const [isAddingNote, setIsAddingNote] = useState(false);
+  const [noteContent, setNoteContent] = useState('');
 
   useEffect(() => {
     if (!containerRef.current) return;
@@ -224,7 +228,18 @@ const MapView = ({
     setSelectedCell(null);
     setSelectionInfo(null);
     setSelectionPolygons([]);
+    setIsAddingNote(false);
+    setNoteContent('');
   }, [attributeKey, datasetId, mode]);
+
+  // Load annotations for the dataset
+  useEffect(() => {
+    if (datasetId) {
+      fetchAnnotations(datasetId)
+        .then(res => setAnnotations(res.annotations || []))
+        .catch(err => console.error('Failed to fetch annotations:', err));
+    }
+  }, [datasetId, setAnnotations]);
 
   const updateViewport = useCallback(async () => {
     if (!datasetId || !attributeKey || mode !== 'viewport') {
@@ -489,6 +504,25 @@ const MapView = ({
     }
   }, [onCoordinatesChange]);
 
+  const handleSaveNote = async () => {
+    if (!selectedCell || !datasetId || !noteContent.trim()) return;
+
+    try {
+      const res = await createAnnotation({
+        cell_dggid: selectedCell.dggid,
+        dataset_id: datasetId,
+        content: noteContent,
+        visibility: 'private', // Default to private for now
+        annotation_type: 'note'
+      });
+      addAnnotation(res);
+      setNoteContent('');
+      setIsAddingNote(false);
+    } catch (err) {
+      console.error('Failed to create annotation:', err);
+    }
+  };
+
   // Memoize the color scale to avoid recreating it for every cell
   const colorScale = useMemo(() => {
     const rampName = layerStyle?.colorRamp ?? 'viridis';
@@ -558,8 +592,34 @@ const MapView = ({
       );
     }
 
+    // Annotation markers
+    if (annotations.length > 0) {
+      // Find polygons that match annotations
+      const annotatedPolygons = polygons.filter(p => 
+        annotations.some(a => a.cell_dggid === p.cell.dggid)
+      );
+
+      if (annotatedPolygons.length > 0) {
+        layerList.push(
+          new ScatterplotLayer({
+            id: 'annotation-markers',
+            data: annotatedPolygons,
+            getPosition: (d: PolygonRecord) => {
+              const p = d.polygon[0];
+              return [p[0], p[1], 0];
+            },
+            getFillColor: [251, 191, 36, 220], // Ember 400
+            getRadius: 20,
+            radiusMinPixels: 6,
+            pickable: true,
+            coordinateSystem: COORDINATE_SYSTEM.LNGLAT,
+          })
+        );
+      }
+    }
+
     return layerList;
-  }, [polygons, selectionPolygons, useGlobe, layerStyle]);
+  }, [polygons, selectionPolygons, useGlobe, layerStyle, annotations]);
 
   // Globe view configuration
   const views = useMemo(() => {
@@ -630,6 +690,38 @@ const MapView = ({
             <strong>{selectionInfo.children?.length ?? 0}</strong>
           </div>
           {selectionInfo.status && <div className="map-inspector__status">{selectionInfo.status}</div>}
+
+          <div className="map-inspector__divider" />
+          <div className="map-inspector__subtitle">Annotations</div>
+          
+          <div className="map-inspector__annotation-list">
+            {annotations.filter(a => a.cell_dggid === selectedCell.dggid).map(a => (
+              <div key={a.id} className="map-inspector__annotation">
+                <p>{a.content}</p>
+                <small>{a.type} — {a.created_at ? new Date(a.created_at).toLocaleDateString() : 'recent'}</small>
+              </div>
+            ))}
+          </div>
+
+          {isAddingNote ? (
+            <div className="map-inspector__add-note">
+              <textarea
+                className="map-inspector__textarea"
+                placeholder="Type your note here..."
+                value={noteContent}
+                onChange={(e) => setNoteContent(e.target.value)}
+                autoFocus
+              />
+              <div className="map-inspector__actions">
+                <button className="map-inspector__btn map-inspector__btn--save" onClick={handleSaveNote}>Save</button>
+                <button className="map-inspector__btn map-inspector__btn--cancel" onClick={() => setIsAddingNote(false)}>Cancel</button>
+              </div>
+            </div>
+          ) : (
+            <button className="map-inspector__btn" onClick={() => setIsAddingNote(true)}>
+              Add Note
+            </button>
+          )}
         </div>
       )}
     </div>

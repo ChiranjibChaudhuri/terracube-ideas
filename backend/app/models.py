@@ -103,3 +103,16 @@ class CellObject(Base):
     value_num = Column(Double)
     value_json = Column(JSON)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+class Job(Base):
+    __tablename__ = "jobs"
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    name = Column(String, nullable=False)
+    type = Column(String, nullable=False)
+    status = Column(String, default="pending")
+    progress = Column(Integer, default=0)
+    result_dataset_id = Column(UUID(as_uuid=True), ForeignKey("datasets.id"), nullable=True)
+    metadata_ = Column("metadata", JSON, default={})
+    created_by = Column(UUID(as_uuid=True), ForeignKey("users.id"))
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    completed_at = Column(DateTime(timezone=True))

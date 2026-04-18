@@ -14,7 +14,7 @@ interface OperationResultsListProps {
 
 export const OperationResultsList: React.FC<OperationResultsListProps> = ({ onSelect }) => {
   const { data: datasets = [], isLoading } = useDatasets();
-  const { results } = useMemo(() => partitionDatasets(datasets as Dataset[]), [datasets]);
+  const { results } = useMemo(() => partitionDatasets(datasets as unknown as Dataset[]), [datasets]);
 
   if (isLoading) {
     return <div className="empty-state">Loading operation results...</div>;

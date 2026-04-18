@@ -4,7 +4,7 @@ from app.db import get_db
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from app.repositories.user_repo import UserRepository
-from app.auth import verify_password, get_password_hash, create_access_token, create_refresh_token
+from app.auth import verify_password, get_password_hash, create_access_token, create_refresh_token, get_current_user
 from app.config import settings
 from app.models import UserRole
 from app.authorization import get_current_admin, require_permission

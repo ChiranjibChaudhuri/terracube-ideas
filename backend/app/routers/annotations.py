@@ -151,12 +151,19 @@ async def get_annotation(
 
     Only returns annotations visible to the authenticated user.
     """
-    # This would need a get_annotation method in service
-    # For now, use list filtered by ID
     service = get_annotation_service(db)
     user_id = user.get("id")
 
-    raise HTTPException(status_code=501, detail="Not yet implemented")
+    try:
+        result = await service.get_annotation(annotation_id, user_id)
+        if not result:
+            raise HTTPException(status_code=404, detail="Annotation not found")
+        return result
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error(f"Error getting annotation: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.put("/{annotation_id}")

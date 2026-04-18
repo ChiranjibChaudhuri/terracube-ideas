@@ -2,10 +2,28 @@ from functools import lru_cache
 from typing import Optional, List, Dict, Any, Callable
 import logging
 import threading
-from dggal import Application, pydggal_setup, GeoExtent, GeoPoint, Array, nullZone
-from dggal import IVEA3H, ISEA3H, IVEA7H, ISEA7H
+from unittest.mock import MagicMock
 
 logger = logging.getLogger("uvicorn.error")
+
+try:
+    from dggal import Application, pydggal_setup, GeoExtent, GeoPoint, Array, nullZone
+    from dggal import IVEA3H, ISEA3H, IVEA7H, ISEA7H
+    DGGAL_AVAILABLE = True
+except ImportError as e:
+    logger.warning(f"Failed to import dggal: {e}. DGGS functionality will be limited.")
+    DGGAL_AVAILABLE = False
+    # Provide mocks so the module can still be imported
+    Application = MagicMock()
+    pydggal_setup = MagicMock()
+    GeoExtent = MagicMock()
+    GeoPoint = MagicMock()
+    Array = MagicMock()
+    nullZone = None
+    IVEA3H = MagicMock()
+    ISEA3H = MagicMock()
+    IVEA7H = MagicMock()
+    ISEA7H = MagicMock()
 
 _dggal_app = None
 def _init_dggal():

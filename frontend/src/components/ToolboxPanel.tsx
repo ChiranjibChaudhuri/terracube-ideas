@@ -1,8 +1,10 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { ToolPalette } from './ToolPalette';
+import { MarketplaceSidebar } from './MarketplaceSidebar';
+import { DynamicForm } from './DynamicForm';
 import { ToolModal } from './ToolModal';
 import { useAppStore } from '../lib/store';
 import { type ToolConfig } from '../lib/toolRegistry';
+import { type Service } from '../types/marketplace';
 import { apiFetch } from '../lib/api';
 import { getDefaultLayerId, partitionLayers } from '../lib/layerUtils';
 import { COLOR_RAMPS } from './ColorLegend';
@@ -10,14 +12,79 @@ import { COLOR_RAMPS } from './ColorLegend';
 /**
  * ToolboxPanel - Redesigned with two main sections:
  * 1. Style tab - Apply styling to selected loaded layer
- * 2. Tools tab - Scalable tool palette with categories
+ * 2. Tools tab - Marketplace service browser
  */
 export const ToolboxPanel: React.FC = () => {
-    const { layers, updateLayer, addLayer } = useAppStore();
+    const { layers, updateLayer, addLayer, setMaxTid } = useAppStore();
     const [activeTab, setActiveTab] = useState<'style' | 'tools'>('style');
     const [selectedLayerId, setSelectedLayerId] = useState<string | null>(() => getDefaultLayerId(layers));
     const [selectedTool, setSelectedTool] = useState<ToolConfig | null>(null);
+    const [selectedService, setSelectedService] = useState<Service | null>(null);
     const [status, setStatus] = useState('');
+    const [isExecuting, setIsExecuting] = useState(false);
+    const [progress, setProgress] = useState(0);
+    const [jobId, setJobId] = useState<string | null>(null);
+
+    // Polling effect for background jobs
+    useEffect(() => {
+        if (!jobId) return;
+
+        let pollCount = 0;
+        const poll = async () => {
+            try {
+                const job = await apiFetch(`/api/jobs/${jobId}`);
+                
+                if (job.status === 'completed') {
+                    setJobId(null);
+                    setIsExecuting(false);
+                    setStatus('Execution complete. Result added to map.');
+                    setProgress(100);
+
+                    if (job.result_dataset_id) {
+                        addLayer({
+                            id: `layer-${job.result_dataset_id}`,
+                            name: `${selectedService?.name || 'Simulation'} Result`,
+                            type: 'dggs',
+                            data: [], 
+                            visible: true,
+                            opacity: 0.8,
+                            origin: 'operation',
+                            datasetId: job.result_dataset_id,
+                            dggsName: job.metadata?.dggs_name || 'h3',
+                        });
+
+                        // If it's a simulation with timesteps, enable temporal controller
+                        if (job.metadata?.timesteps) {
+                            setMaxTid(job.metadata.timesteps - 1);
+                        }
+                    }
+                } else if (job.status === 'failed') {
+                    setJobId(null);
+                    setIsExecuting(false);
+                    setStatus(`Error: ${job.metadata?.error || 'Simulation failed'}`);
+                    setProgress(0);
+                } else {
+                    // Running or pending
+                    setProgress(job.progress || 0);
+                    const stepInfo = job.metadata?.timesteps 
+                        ? ` (Step ${Math.floor((job.progress / 100) * job.metadata.timesteps)}/${job.metadata.timesteps})`
+                        : '';
+                    setStatus(`Executing: ${job.status}${stepInfo}... ${job.progress}%`);
+                }
+            } catch (error) {
+                console.error('Job polling failed:', error);
+                pollCount++;
+                if (pollCount > 5) { // Stop after 5 consecutive failures
+                    setJobId(null);
+                    setIsExecuting(false);
+                    setStatus('Error: Lost connection to job tracker.');
+                }
+            }
+        };
+
+        const interval = setInterval(poll, 1500);
+        return () => clearInterval(interval);
+    }, [jobId, addLayer, setMaxTid, selectedService]);
 
     // Style settings
     const [colorRamp, setColorRamp] = useState('viridis');
@@ -79,6 +146,70 @@ export const ToolboxPanel: React.FC = () => {
 
     const rampGradient = (COLOR_RAMPS[colorRamp] ?? COLOR_RAMPS.viridis).replace('to top', 'to right');
 
+    // Handle service execution (Marketplace)
+    const handleServiceExecute = async (params: Record<string, any>) => {
+        if (!selectedService) return;
+
+        setIsExecuting(true);
+        setStatus(`Executing ${selectedService.name}...`);
+        setProgress(0);
+        
+        try {
+            // Determine endpoint based on service ID
+            // For fire-spread, we know it's /api/prediction/fire/spread
+            let endpoint = `/api/marketplace/execute/${selectedService.id}`;
+            if (selectedService.id === 'fire-spread') {
+                endpoint = '/api/prediction/fire/spread';
+            }
+
+            const result = await apiFetch(endpoint, {
+                method: 'POST',
+                body: JSON.stringify(params)
+            });
+
+            if (result && result.job_id) {
+                // Background job started - polling effect will handle the rest
+                setJobId(result.job_id);
+                setStatus(`Job started: ${result.job_id}`);
+            } else if (result && result.dggids) {
+                addLayer({
+                    id: `service-${selectedService.id}-${Date.now()}`,
+                    name: `${selectedService.name} Result`,
+                    type: 'dggs',
+                    data: result.dggids,
+                    visible: true,
+                    opacity: 0.8,
+                    origin: 'operation',
+                    dggsName: result.dggs_name || 'h3',
+                });
+                setStatus('Execution complete. Result added to map.');
+                setIsExecuting(false);
+            } else if (result && result.newDatasetId) {
+                // Handle persistent result
+                addLayer({
+                    id: `layer-${result.newDatasetId}`,
+                    name: `${selectedService.name} Result`,
+                    type: 'dggs',
+                    data: [], 
+                    visible: true,
+                    opacity: 0.8,
+                    origin: 'operation',
+                    datasetId: result.newDatasetId,
+                    dggsName: 'h3',
+                });
+                setStatus('Execution complete. Dataset added.');
+                setIsExecuting(false);
+            } else {
+                setStatus('Execution complete.');
+                setIsExecuting(false);
+            }
+        } catch (error) {
+            console.error('Service execution failed:', error);
+            setStatus(`Error: ${error instanceof Error ? error.message : 'Unknown error'}`);
+            setIsExecuting(false);
+        }
+    };
+
     // Handle tool execution
     const handleToolExecute = async (toolId: string, params: Record<string, any>) => {
         const tool = selectedTool;
@@ -115,32 +246,44 @@ export const ToolboxPanel: React.FC = () => {
             };
 
             setStatus(`Running ${toolId}...`);
-            const result = await apiFetch('/api/ops/spatial', { // Call generic spatial persist endpoint
-                method: 'POST',
-                body: JSON.stringify(payload)
-            });
+            setIsExecuting(true);
+            setProgress(0);
 
-            if (result.newDatasetId) {
-                // Determine name
-                const name = `${tool?.name} result`;
-
-                // Add as a new Dataset Layer (fetched from DB)
-                // We use addLayer properties similar to handleDatasetSelect
-                setStatus('Loading result...');
-
-                addLayer({
-                    id: `layer-${result.newDatasetId}`,
-                    name: name,
-                    type: 'dggs',
-                    data: [], // Empty, MapView loads it
-                    visible: true,
-                    opacity: 0.8,
-                    origin: 'operation',
-                    datasetId: result.newDatasetId,
-                    attrKey: ['buffer', 'aggregate'].includes(type) ? type : 'intersection',
-                    dggsName: layerA.dggsName,
+            try {
+                const result = await apiFetch('/api/ops/spatial', { // Call generic spatial persist endpoint
+                    method: 'POST',
+                    body: JSON.stringify(payload)
                 });
-                setStatus('Operation complete. Layer added.');
+
+                if (result.job_id) {
+                    setJobId(result.job_id);
+                } else if (result.newDatasetId) {
+                    // Determine name
+                    const name = `${tool?.name} result`;
+
+                    // Add as a new Dataset Layer (fetched from DB)
+                    // We use addLayer properties similar to handleDatasetSelect
+                    setStatus('Loading result...');
+
+                    addLayer({
+                        id: `layer-${result.newDatasetId}`,
+                        name: name,
+                        type: 'dggs',
+                        data: [], // Empty, MapView loads it
+                        visible: true,
+                        opacity: 0.8,
+                        origin: 'operation',
+                        datasetId: result.newDatasetId,
+                        attrKey: ['buffer', 'aggregate'].includes(type) ? type : 'intersection',
+                        dggsName: layerA.dggsName,
+                    });
+                    setStatus('Operation complete. Layer added.');
+                    setIsExecuting(false);
+                }
+            } catch (error) {
+                console.error('Spatial operation failed:', error);
+                setStatus(`Error: ${error instanceof Error ? error.message : 'Unknown error'}`);
+                setIsExecuting(false);
             }
             return;
         }
@@ -171,32 +314,55 @@ export const ToolboxPanel: React.FC = () => {
             throw new Error('Unsupported tool.');
         }
 
-        const result = await apiFetch(apiEndpoint, {
-            method: 'POST',
-            body: JSON.stringify(payload)
-        });
-
-        if (result?.dggids && Array.isArray(result.dggids)) {
-            const dggsName = layerA?.dggsName && layerA?.dggsName === layerB?.dggsName
-                ? layerA.dggsName
-                : layerA?.dggsName;
-            addLayer({
-                id: `tool-${toolId}-${Date.now()}`,
-                name: `${tool.name}`,
-                type: 'dggs',
-                data: result.dggids,
-                visible: true,
-                opacity: 0.6,
-                color: [90, 161, 255],
-                origin: 'operation',
-                dggsName
+        setIsExecuting(true);
+        setStatus(`Running ${tool?.name}...`);
+        
+        try {
+            const result = await apiFetch(apiEndpoint, {
+                method: 'POST',
+                body: JSON.stringify(payload)
             });
+
+            if (result?.dggids && Array.isArray(result.dggids)) {
+                const dggsName = layerA?.dggsName && layerA?.dggsName === layerB?.dggsName
+                    ? layerA.dggsName
+                    : layerA?.dggsName;
+                addLayer({
+                    id: `tool-${toolId}-${Date.now()}`,
+                    name: `${tool.name}`,
+                    type: 'dggs',
+                    data: result.dggids,
+                    visible: true,
+                    opacity: 0.6,
+                    color: [90, 161, 255],
+                    origin: 'operation',
+                    dggsName
+                });
+                setStatus('Operation complete.');
+            }
+        } catch (error) {
+            console.error('Tool execution failed:', error);
+            setStatus(`Error: ${error instanceof Error ? error.message : 'Unknown error'}`);
+        } finally {
+            setIsExecuting(false);
         }
     };
 
     return (
         <div className="toolbox-panel">
-            {status && <div className="toolbox-status">{status}</div>}
+            {status && (
+                <div className="toolbox-status">
+                    {status}
+                    {isExecuting && (
+                        <div className="toolbox-progress">
+                            <div 
+                                className="toolbox-progress-fill" 
+                                style={{ width: `${progress}%` }} 
+                            />
+                        </div>
+                    )}
+                </div>
+            )}
             {/* Tab Headers */}
             <div className="toolbox-tabs">
                 <button
@@ -346,7 +512,16 @@ export const ToolboxPanel: React.FC = () => {
                 )}
 
                 {activeTab === 'tools' && (
-                    <ToolPalette onSelectTool={(tool) => setSelectedTool(tool)} />
+                    selectedService ? (
+                        <DynamicForm 
+                            service={selectedService} 
+                            onExecute={handleServiceExecute} 
+                            onCancel={() => setSelectedService(null)}
+                            isRunning={isExecuting}
+                        />
+                    ) : (
+                        <MarketplaceSidebar onSelectService={(service) => setSelectedService(service)} />
+                    )
                 )}
             </div>
 

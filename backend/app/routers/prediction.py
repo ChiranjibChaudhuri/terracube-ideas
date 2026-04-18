@@ -167,7 +167,8 @@ async def predict_fire_spread(
             timesteps=request.timesteps,
             wind_speed=request.wind_speed,
             wind_direction=request.wind_direction,
-            humidity=request.humidity
+            humidity=request.humidity,
+            created_by=user.get("id")
         )
         return result
     except ValueError as e:

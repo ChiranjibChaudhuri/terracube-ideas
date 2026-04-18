@@ -258,15 +258,15 @@ def sanitize_dggid(dggid: str) -> str:
     return sanitized[:256]  # Reasonable max length
 
 
-class RequestIdMiddleware:
+from starlette.middleware.base import BaseHTTPMiddleware
+
+
+class RequestIdMiddleware(BaseHTTPMiddleware):
     """
     Middleware to add a unique request ID to each request for tracing.
     """
 
-    def __init__(self, app: FastAPI):
-        self.app = app
-
-    async def __call__(self, request: Request, call_next):
+    async def dispatch(self, request: Request, call_next):
         import uuid
         request.state.request_id = str(uuid.uuid4())
         response = await call_next(request)

@@ -117,15 +117,14 @@ export const fetchCells = async (
 export const fetchCellsByDggids = async (
     datasetId: string,
     dggids: string[],
-    key?: string,
-    tid?: number,
+    attrKey: string,
+    tid: number = 0,
     options: RequestInit = {}
 ) => {
-    return apiFetch(`/api/datasets/${datasetId}/lookup`, {
-        method: 'POST',
-        body: JSON.stringify({ dggids, key, tid }),
-        ...options,
-    });
+    const query = new URLSearchParams();
+    if (attrKey) query.append('attr_key', attrKey);
+    query.append('tid', String(tid));
+    return apiFetch(`/api/datasets/${datasetId}/cells?${query.toString()}`, options);
 };
 
 export const runOperation = async (payload: Record<string, unknown>) => {
@@ -251,4 +250,46 @@ export const exportDatasetGeoJSON = async (datasetId: string) => {
         method: 'POST',
         body: JSON.stringify({ format: 'geojson' }),
     });
+};
+
+/**
+ * Annotation API methods
+ */
+export const fetchAnnotations = async (datasetId: string, params: Record<string, any> = {}) => {
+    const query = new URLSearchParams(params).toString();
+    return apiFetch(`/api/annotations/dataset/${datasetId}${query ? `?${query}` : ''}`);
+};
+
+export const createAnnotation = async (payload: {
+    cell_dggid: string;
+    dataset_id: string;
+    content: string;
+    annotation_type?: string;
+    visibility?: string;
+    shared_with?: string[];
+}) => {
+    return apiFetch('/api/annotations', {
+        method: 'POST',
+        body: JSON.stringify(payload),
+    });
+};
+
+export const updateAnnotation = async (annotationId: string, payload: {
+    content?: string;
+    visibility?: string;
+}) => {
+    return apiFetch(`/api/annotations/${annotationId}`, {
+        method: 'PUT',
+        body: JSON.stringify(payload),
+    });
+};
+
+export const deleteAnnotation = async (annotationId: string) => {
+    return apiFetch(`/api/annotations/${annotationId}`, {
+        method: 'DELETE',
+    });
+};
+
+export const getAnnotation = async (annotationId: string) => {
+    return apiFetch(`/api/annotations/${annotationId}`);
 };

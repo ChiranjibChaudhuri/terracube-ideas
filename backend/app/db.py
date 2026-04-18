@@ -66,8 +66,10 @@ engine = create_async_engine(
     pool_pre_ping=True,  # Verify connections are alive
     pool_recycle=3600,  # Recycle connections every hour
     connect_args={
-        "options": f"-c statement_timeout={settings.DB_STATEMENT_TIMEOUT}s",
-        "server_settings": {"application_name": "terracube_ideas"}
+        "server_settings": {
+            "application_name": "terracube_ideas",
+            "statement_timeout": f"{int(settings.DB_STATEMENT_TIMEOUT) * 1000}"
+        }
     }
 )
 

@@ -125,7 +125,6 @@ class PerUserLimiter:
         self._limiter = Limiter(
             key_func=self._get_key,
             default_limits=[self.default_limits],
-            exempt_routes=self.exempt_routes,
             storage_uri=storage_uri,
             storage_options={"connect_args": {"decode_responses": True}}
         )

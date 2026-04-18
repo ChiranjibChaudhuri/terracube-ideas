@@ -7,9 +7,6 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, JSONResponse
 from pydantic import ValidationError
-from slowapi import Limiter, _rate_limit_exceeded
-from slowapi.util import get_remote_address
-from slowapi.errors import RateLimitExceeded
 from app.config import settings
 from app.init_db import init_db
 from app.seed import seed_admin
@@ -122,6 +119,8 @@ from app.routers import (
     ogc,               # OGC API Features
     spatial_analysis,  # Advanced spatial analysis algorithms
     stac,              # STAC-DGGS integration
+    marketplace,       # Service marketplace
+    jobs,              # Background job tracking
 )
 
 # Register API routes
@@ -142,6 +141,8 @@ app.include_router(temporal.router)
 app.include_router(ogc.router)
 app.include_router(spatial_analysis.router)
 app.include_router(stac.router)
+app.include_router(marketplace.router)
+app.include_router(jobs.router)
 
 from prometheus_fastapi_instrumentator import Instrumentator
 Instrumentator().instrument(app).expose(app)

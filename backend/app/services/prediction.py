@@ -11,6 +11,7 @@ from datetime import datetime, timedelta
 from typing import List, Optional, Dict, Any, Literal
 from sqlalchemy import select, and_, or_, func, text
 from sqlalchemy.ext.asyncio import AsyncSession
+from app.models import Job, Dataset, CellObject
 import logging
 import uuid
 import json
@@ -353,7 +354,8 @@ class FireSpreadPredictionService(PredictionService):
         timesteps: int = 10,
         wind_speed: float = 10.0,
         wind_direction: float = 0.0,
-        humidity: float = 50.0
+        humidity: float = 50.0,
+        created_by: Optional[str] = None
     ) -> Dict[str, Any]:
         """
         Predict fire spread using cellular automata + ML.
@@ -366,29 +368,90 @@ class FireSpreadPredictionService(PredictionService):
             wind_speed: Wind speed in km/h
             wind_direction: Wind direction in degrees
             humidity: Relative humidity percentage
+            created_by: User ID creating the job
 
         Returns:
             Prediction job with result dataset
         """
         import uuid
+        from datetime import datetime
 
-        job_id = uuid.uuid4()
-        result_dataset_id = uuid.uuid4()
+        # 1. Create a result dataset
+        result_dataset = Dataset(
+            id=uuid.uuid4(),
+            name=f"Fire Spread Simulation {datetime.now().strftime('%Y-%m-%d %H:%M')}",
+            description=f"Simulation from ignition {ignition_dataset_id}",
+            status="processing",
+            created_by=uuid.UUID(created_by) if created_by else None,
+            metadata_={
+                "type": "fire_spread_simulation",
+                "params": {
+                    "timesteps": timesteps,
+                    "wind_speed": wind_speed,
+                    "wind_direction": wind_direction,
+                    "humidity": humidity
+                }
+            }
+        )
+        self.db.add(result_dataset)
+        await self.db.flush()
+
+        # 2. Create a Job record
+        job = Job(
+            id=uuid.uuid4(),
+            name=f"Fire Spread Simulation",
+            type="fire_spread_prediction",
+            status="running",
+            progress=0,
+            result_dataset_id=result_dataset.id,
+            created_by=uuid.UUID(created_by) if created_by else None,
+            metadata_={
+                "ignition_dataset_id": ignition_dataset_id,
+                "fuel_dataset_id": fuel_dataset_id,
+                "weather_dataset_id": weather_dataset_id,
+                "timesteps": timesteps
+            }
+        )
+        self.db.add(job)
+        await self.db.commit()
+
+        # 3. Simulate multiple timesteps
+        # In a real app, this would be a background task (Celery/FastAPI BackgroundTasks)
+        # Here we simulate it sequentially for the purpose of the implementation plan
+        for t in range(timesteps):
+            # Update progress
+            progress = int(((t + 1) / timesteps) * 100)
+            job.progress = progress
+            
+            # Simulate cell creation for this timestep
+            # For each timestep, we add a few placeholder cells
+            for i in range(5):
+                cell = CellObject(
+                    dataset_id=result_dataset.id,
+                    dggid=f"CELL_{t}_{i}",
+                    tid=t,
+                    attr_key="fire_intensity",
+                    value_num=float(100 - t * 2 + i)
+                )
+                self.db.add(cell)
+            
+            await self.db.commit()
+            # Brief sleep to simulate processing time and allow polling
+            await asyncio.sleep(0.1)
+
+        # 4. Finalize Job and Dataset
+        job.status = "completed"
+        job.completed_at = datetime.now()
+        result_dataset.status = "active"
+        await self.db.commit()
 
         return {
-            "job_id": str(job_id),
+            "job_id": str(job.id),
             "type": "fire_spread_prediction",
-            "status": PredictionStatus.COMPLETED,
-            "parameters": {
-                "timesteps": timesteps,
-                "wind_speed": wind_speed,
-                "wind_direction": wind_direction,
-                "humidity": humidity
-            },
-            "result_dataset_id": str(result_dataset_id),
-            "cells_burned": 15000,
-            "final_perimeter_km": 125.5,
-            "completed_at": datetime.now().isoformat()
+            "status": job.status,
+            "result_dataset_id": str(result_dataset.id),
+            "progress": job.progress,
+            "completed_at": job.completed_at.isoformat() if job.completed_at else None
         }
 
     async def get_fire_risk_map(

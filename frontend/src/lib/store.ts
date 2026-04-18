@@ -18,6 +18,17 @@ export interface LayerConfig {
     colorRamp?: string; // Optional - name of the color ramp (e.g. "viridis", "magma")
 }
 
+export interface Annotation {
+    id: string;
+    cell_dggid: string;
+    dataset_id: string;
+    content: string;
+    type: string;
+    visibility: string;
+    created_by?: string;
+    created_at?: string;
+}
+
 interface AppState {
     layers: LayerConfig[];
     addLayer: (layer: LayerConfig) => void;
@@ -26,6 +37,16 @@ interface AppState {
 
     currentDatasetId: string | null;
     setCurrentDatasetId: (id: string | null) => void;
+
+    currentTid: number;
+    maxTid: number;
+    setTid: (tid: number) => void;
+    setMaxTid: (maxTid: number) => void;
+
+    annotations: Annotation[];
+    setAnnotations: (annotations: Annotation[]) => void;
+    addAnnotation: (annotation: Annotation) => void;
+    removeAnnotation: (id: string) => void;
 }
 
 export const useAppStore = create<AppState>((set) => ({
@@ -40,4 +61,16 @@ export const useAppStore = create<AppState>((set) => ({
 
     currentDatasetId: null,
     setCurrentDatasetId: (id) => set({ currentDatasetId: id }),
+
+    currentTid: 0,
+    maxTid: 0,
+    setTid: (tid) => set({ currentTid: tid }),
+    setMaxTid: (maxTid) => set({ maxTid }),
+
+    annotations: [],
+    setAnnotations: (annotations) => set({ annotations }),
+    addAnnotation: (annotation) => set((state) => ({ annotations: [annotation, ...state.annotations] })),
+    removeAnnotation: (id) => set((state) => ({
+        annotations: state.annotations.filter(a => a.id !== id)
+    })),
 }));

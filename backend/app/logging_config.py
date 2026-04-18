@@ -4,6 +4,7 @@ Structured logging configuration for TerraCube IDEAS.
 Provides JSON-formatted logs with request tracing and performance metrics.
 """
 import logging
+import logging.handlers
 import sys
 from datetime import datetime
 from typing import Any, Dict
@@ -225,8 +226,6 @@ def setup_logging() -> None:
     root_logger.handlers = []
 
     # Console handler with JSON formatting in production
-    import logging.handlers
-
     if settings.ENVIRONMENT == "production":
         console_handler = logging.StreamHandler(sys.stderr)
         console_handler.setFormatter(StructuredFormatter())

@@ -1,5 +1,6 @@
 import { useQuery, useMutation } from '@tanstack/react-query';
 import { apiFetch, fetchDatasets, getUploadStatus, listUploads, exportDatasetCSV, exportDatasetGeoJSON } from './api';
+import { type Service } from '../types/marketplace';
 
 export interface UploadStatus {
     id: string;
@@ -27,6 +28,16 @@ export const useDatasets = (search?: string) => {
         queryFn: async () => {
             const result = await fetchDatasets(search);
             return normalizeDatasets(result as DatasetListPayload);
+        },
+    });
+};
+
+export const useServices = () => {
+    return useQuery({
+        queryKey: ['marketplace-services'],
+        queryFn: async () => {
+            const result = await apiFetch('/api/marketplace/services');
+            return result as Service[];
         },
     });
 };

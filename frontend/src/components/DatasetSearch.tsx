@@ -37,7 +37,7 @@ export const DatasetSearch: React.FC<DatasetSearchProps> = ({ onSelect }) => {
 
     // Categorize datasets
     const { data: dataDatasets, results: resultDatasets } = useMemo(() => {
-        return partitionDatasets(datasets as Dataset[]);
+        return partitionDatasets(datasets as unknown as Dataset[]);
     }, [datasets]);
 
     const filterDatasets = (list: Dataset[], query: string) => {

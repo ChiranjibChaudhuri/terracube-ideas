@@ -1,5 +1,6 @@
 import { useEffect, useState, useCallback } from 'react';
 import MapView from '../components/MapView';
+import { TemporalController } from '../components/TemporalController';
 import { DatasetSearch } from '../components/DatasetSearch';
 import { LayerList } from '../components/LayerList';
 import { ToolboxPanel } from '../components/ToolboxPanel';
@@ -42,7 +43,7 @@ type MapStats = {
 };
 
 const DashboardPage = () => {
-  const { layers, addLayer, updateLayer } = useAppStore();
+  const { layers, addLayer, updateLayer, currentTid, maxTid } = useAppStore();
   const { messages } = useToast();
   const [selectedDataset, setSelectedDataset] = useState<Dataset | null>(null);
   const [mapMode, setMapMode] = useState<'viewport' | 'operation'>('viewport');
@@ -51,7 +52,6 @@ const DashboardPage = () => {
   const [isLoading, setIsLoading] = useState(false);
 
   const [renderKey, setRenderKey] = useState('');
-  const [renderTid, setRenderTid] = useState('0');
   const [levelMode, setLevelMode] = useState<'auto' | 'fixed'>('auto');
   const [fixedLevel, setFixedLevel] = useState(3);
   const [levelOffset, setLevelOffset] = useState(3);
@@ -342,7 +342,7 @@ const DashboardPage = () => {
             <MapView
               datasetId={selectedDataset?.id}
               attributeKey={renderKey.trim() || null}
-              tid={Number(renderTid) || 0}
+              tid={currentTid}
               dggsName={selectedDataset?.dggs_name ?? null}
               basemapStyle={basemap?.styleUrl}
               globeTexture={basemap?.textureUrl}
@@ -386,6 +386,9 @@ const DashboardPage = () => {
                 />
               </div>
             )}
+
+            {/* Temporal Controller */}
+            {maxTid > 0 && <TemporalController />}
           </div>
 
           {/* Status Info Bar at bottom */}
